@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# MAGeCK dashboard project data (local outputs, not versioned)
+data/input/*
+data/output/*
+!data/input/.gitkeep
+!data/output/.gitkeep
