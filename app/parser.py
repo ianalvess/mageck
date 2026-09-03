@@ -18,7 +18,7 @@ import pandas as pd
 def load_gene_summary(path: str | Path) -> pd.DataFrame:
     """Load and clean a MAGeCK gene_summary.txt file.
 
-    Adds two convenience columns:
+    Adds convenience columns:
     - direction: "neg" or "pos", whichever has the lower FDR for that gene
     - best_fdr / best_lfc: the FDR/LFC value for the chosen direction
 
