@@ -57,3 +57,43 @@ def build_volcano_plot(
     fig.update_layout(height=600)
 
     return fig
+
+def compute_gini_index(values: pd.Series) -> float:
+    """Compute the Gini index of a distribution of read counts.
+
+    0 means perfectly even distribution across sgRNAs; 1 means
+    maximally uneven (all reads concentrated in one sgRNA).
+
+    Args:
+        values: a Series of non-negative counts (e.g. read counts per sgRNA).
+
+    Returns:
+        The Gini index as a float between 0 and 1.
+    """
+    sorted_values = np.sort(values.to_numpy())
+    n = len(sorted_values)
+    cumulative = np.cumsum(sorted_values)
+    return (2 * np.sum((np.arange(1, n + 1)) * sorted_values) - (n + 1) * cumulative[-1]) / (
+        n * cumulative[-1]
+    )
+
+
+def build_read_distribution_plot(df: pd.DataFrame, count_column: str) -> go.Figure:
+    """Build a histogram of read counts per sgRNA.
+
+    Args:
+        df: DataFrame produced by app.parser.load_sgrna_summary.
+        count_column: name of the column holding read counts to plot.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    fig = px.histogram(
+        df,
+        x=count_column,
+        nbins=50,
+        labels={count_column: "Read count per sgRNA"},
+        title=f"sgRNA Read Distribution ({count_column})",
+    )
+    fig.update_layout(height=400, showlegend=False)
+    return fig

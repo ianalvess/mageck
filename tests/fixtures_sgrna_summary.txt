@@ -1,0 +1,7 @@
+sgrna	Gene	control_count	treatment_count	control_mean	treat_mean	LFC	FDR
+sgRNA_1	GENE_A	120	15	120	15	-3.0	0.001
+sgRNA_2	GENE_A	95	10	95	10	-3.2	0.002
+sgRNA_3	GENE_B	80	500	80	500	2.6	0.001
+sgRNA_4	GENE_B	60	450	60	450	2.9	0.0015
+sgRNA_5	GENE_C	100	105	100	105	0.07	0.8
+sgRNA_6	GENE_C	5	4	5	4	-0.3	0.9

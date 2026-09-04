@@ -1,24 +1,47 @@
 import streamlit as st
 
-from parser import load_gene_summary
-from plots import build_volcano_plot
+from parser import load_gene_summary, load_sgrna_summary
+from plots import build_volcano_plot, build_read_distribution_plot, compute_gini_index
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
 st.title("MAGeCK Dashboard")
 
-uploaded_file = st.file_uploader("Upload gene_summary.txt", type=["txt", "tsv"])
+tab_volcano, tab_qc = st.tabs(["Volcano Plot", "QC Report"])
 
-if uploaded_file is not None:
-    df = load_gene_summary(uploaded_file)
+with tab_volcano:
+    uploaded_gene_file = st.file_uploader("Upload gene_summary.txt", type=["txt", "tsv"], key="gene_summary")
 
-    col1, col2 = st.columns(2)
-    fdr_threshold = col1.number_input("FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01)
-    lfc_threshold = col2.number_input("LFC threshold", value=1.0, min_value=0.0, step=0.1)
+    if uploaded_gene_file is not None:
+        gene_df = load_gene_summary(uploaded_gene_file)
 
-    fig = build_volcano_plot(df, fdr_threshold=fdr_threshold, lfc_threshold=lfc_threshold)
-    st.plotly_chart(fig, use_container_width=True)
+        col1, col2 = st.columns(2)
+        fdr_threshold = col1.number_input("FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01)
+        lfc_threshold = col2.number_input("LFC threshold", value=1.0, min_value=0.0, step=0.1)
 
-    st.subheader("Gene summary table")
-    st.dataframe(df, use_container_width=True)
-else:
-    st.info("Upload a MAGeCK gene_summary.txt file to get started.")
+        fig = build_volcano_plot(gene_df, fdr_threshold=fdr_threshold, lfc_threshold=lfc_threshold)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Gene summary table")
+        st.dataframe(gene_df, use_container_width=True)
+    else:
+        st.info("Upload a MAGeCK gene_summary.txt file to get started.")
+
+with tab_qc:
+    uploaded_sgrna_file = st.file_uploader("Upload sgrna_summary.txt", type=["txt", "tsv"], key="sgrna_summary")
+
+    if uploaded_sgrna_file is not None:
+        sgrna_df = load_sgrna_summary(uploaded_sgrna_file)
+
+        numeric_columns = sgrna_df.select_dtypes(include="number").columns.tolist()
+        count_column = st.selectbox("Column to use as read count", numeric_columns)
+
+        gini = compute_gini_index(sgrna_df[count_column])
+        st.metric("Gini index", f"{gini:.3f}")
+
+        fig = build_read_distribution_plot(sgrna_df, count_column)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("sgRNA summary table")
+        st.dataframe(sgrna_df, use_container_width=True)
+    else:
+        st.info("Upload a MAGeCK sgrna_summary.txt file to get started.")
