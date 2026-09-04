@@ -97,3 +97,25 @@ def build_read_distribution_plot(df: pd.DataFrame, count_column: str) -> go.Figu
     )
     fig.update_layout(height=400, showlegend=False)
     return fig
+
+def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
+    """Build a grouped bar chart of mapping percentage per sample.
+
+    Args:
+        df: DataFrame produced by app.parser.load_countsummary.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    fig = px.bar(
+        df,
+        x="Label",
+        y="Percentage",
+        labels={"Label": "Sample", "Percentage": "Mapped reads (%)"},
+        title="Mapping Rate per Sample",
+        text_auto=".1%",
+    )
+    fig.update_yaxes(tickformat=".0%", range=[0, 1])
+    fig.add_hline(y=0.8, line_dash="dash", line_color="red", annotation_text="80% threshold")
+    fig.update_layout(height=400)
+    return fig

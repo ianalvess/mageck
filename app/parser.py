@@ -63,3 +63,24 @@ def load_sgrna_summary(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"sgrna_summary file is missing expected columns: {missing}")
 
     return df
+
+def load_countsummary(path: str | Path) -> pd.DataFrame:
+    """Load and clean a MAGeCK countsummary.txt file.
+
+    This file summarizes read mapping quality per sample, produced
+    by `mageck count` (runs before `mageck test`).
+
+    Args:
+        path: path to the countsummary.txt file.
+
+    Returns:
+        Cleaned DataFrame with the original columns.
+    """
+    df = pd.read_csv(path, sep="\t", na_values=["NA", "na", ""])
+
+    required = {"Label", "Reads", "Mapped", "Percentage", "Zerocounts", "GiniIndex"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"countsummary file is missing expected columns: {missing}")
+
+    return df
