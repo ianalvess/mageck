@@ -164,3 +164,14 @@ def build_replicate_correlation_plot(
 
     fig.update_layout(height=500)
     return fig
+
+def figure_to_png_bytes(fig: go.Figure) -> bytes:
+    """Convert a Plotly figure to PNG bytes, for use with st.download_button.
+
+    Args:
+        fig: the Plotly figure to export.
+
+    Returns:
+        PNG image data as bytes.
+    """
+    return fig.to_image(format="png", scale=2)
