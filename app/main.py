@@ -10,11 +10,19 @@ from plots import (
     build_mapping_summary_plot,
     build_replicate_correlation_plot,
     figure_to_png_bytes,
+    build_html_report,
 )
 from pipeline import run_mageck_count, run_mageck_test
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
 st.title("MAGeCK Dashboard")
+
+# Named figure variables, so the full-report builder at the bottom can
+# find each one regardless of which tab last ran.
+volcano_fig = None
+qc_fig = None
+mapping_fig = None
+replicate_fig = None
 
 tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates = st.tabs(
     ["Run Pipeline", "Volcano Plot", "QC Report", "Mapping QC", "Replicate Correlation"]
@@ -135,12 +143,12 @@ with tab_volcano:
         fdr_threshold = col1.number_input("FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01)
         lfc_threshold = col2.number_input("LFC threshold", value=1.0, min_value=0.0, step=0.1)
 
-        fig = build_volcano_plot(gene_df, fdr_threshold=fdr_threshold, lfc_threshold=lfc_threshold)
-        st.plotly_chart(fig, use_container_width=True)
+        volcano_fig = build_volcano_plot(gene_df, fdr_threshold=fdr_threshold, lfc_threshold=lfc_threshold)
+        st.plotly_chart(volcano_fig, use_container_width=True)
 
         st.download_button(
             "Download volcano plot (PNG)",
-            data=figure_to_png_bytes(fig),
+            data=figure_to_png_bytes(volcano_fig),
             file_name="volcano_plot.png",
             mime="image/png",
         )
@@ -176,12 +184,12 @@ with tab_qc:
         gini = compute_gini_index(sgrna_df[count_column])
         st.metric("Gini index", f"{gini:.3f}")
 
-        fig = build_read_distribution_plot(sgrna_df, count_column)
-        st.plotly_chart(fig, use_container_width=True)
+        qc_fig = build_read_distribution_plot(sgrna_df, count_column)
+        st.plotly_chart(qc_fig, use_container_width=True)
 
         st.download_button(
             "Download read distribution plot (PNG)",
-            data=figure_to_png_bytes(fig),
+            data=figure_to_png_bytes(qc_fig),
             file_name="read_distribution.png",
             mime="image/png",
         )
@@ -215,12 +223,12 @@ with tab_mapping:
         if not low_mapping.empty:
             st.warning(f"Samples below 80% mapping: {', '.join(low_mapping['Label'])}")
 
-        fig = build_mapping_summary_plot(count_df)
-        st.plotly_chart(fig, use_container_width=True)
+        mapping_fig = build_mapping_summary_plot(count_df)
+        st.plotly_chart(mapping_fig, use_container_width=True)
 
         st.download_button(
             "Download mapping summary plot (PNG)",
-            data=figure_to_png_bytes(fig),
+            data=figure_to_png_bytes(mapping_fig),
             file_name="mapping_summary.png",
             mime="image/png",
         )
@@ -260,12 +268,12 @@ with tab_replicates:
         if x_column == y_column:
             st.warning("Select two different columns to compare.")
         else:
-            fig = build_replicate_correlation_plot(counts_df, x_column, y_column)
-            st.plotly_chart(fig, use_container_width=True)
+            replicate_fig = build_replicate_correlation_plot(counts_df, x_column, y_column)
+            st.plotly_chart(replicate_fig, use_container_width=True)
 
             st.download_button(
                 "Download replicate correlation plot (PNG)",
-                data=figure_to_png_bytes(fig),
+                data=figure_to_png_bytes(replicate_fig),
                 file_name="replicate_correlation.png",
                 mime="image/png",
             )
@@ -274,3 +282,26 @@ with tab_replicates:
         st.dataframe(counts_df, use_container_width=True)
     elif source == "Upload file":
         st.info("Upload a per-sample sgRNA count table to compare replicates.")
+
+st.divider()
+st.subheader("Full report")
+
+available_figures = {
+    "Volcano Plot": volcano_fig,
+    "QC Report": qc_fig,
+    "Mapping QC": mapping_fig,
+    "Replicate Correlation": replicate_fig,
+}
+num_available = sum(fig is not None for fig in available_figures.values())
+
+if num_available == 0:
+    st.info("Load data in at least one tab above to enable the full report download.")
+else:
+    st.write(f"{num_available} chart(s) ready to include in the report.")
+    report_html = build_html_report(available_figures)
+    st.download_button(
+        "Download full HTML report",
+        data=report_html,
+        file_name="mageck_report.html",
+        mime="text/html",
+    )
