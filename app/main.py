@@ -22,11 +22,25 @@ tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates = st.tabs(
 )
 
 with tab_volcano:
-    uploaded_gene_file = st.file_uploader("Upload gene_summary.txt", type=["txt", "tsv"], key="gene_summary")
+    source = st.radio(
+        "Data source",
+        ["Upload file", "Use last pipeline run"],
+        key="volcano_source",
+        horizontal=True,
+    )
 
-    if uploaded_gene_file is not None:
-        gene_df = load_gene_summary(uploaded_gene_file)
+    if source == "Use last pipeline run":
+        if "pipeline_gene_summary" not in st.session_state:
+            st.warning("No pipeline run yet. Run the pipeline in the 'Run Pipeline' tab first, or switch to 'Upload file'.")
+            gene_df = None
+        else:
+            gene_df = load_gene_summary(st.session_state["pipeline_gene_summary"])
+            st.caption(f"Using: {st.session_state['pipeline_gene_summary']}")
+    else:
+        uploaded_gene_file = st.file_uploader("Upload gene_summary.txt", type=["txt", "tsv"], key="gene_summary")
+        gene_df = load_gene_summary(uploaded_gene_file) if uploaded_gene_file is not None else None
 
+    if gene_df is not None:
         col1, col2 = st.columns(2)
         fdr_threshold = col1.number_input("FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01)
         lfc_threshold = col2.number_input("LFC threshold", value=1.0, min_value=0.0, step=0.1)
@@ -36,15 +50,29 @@ with tab_volcano:
 
         st.subheader("Gene summary table")
         st.dataframe(gene_df, use_container_width=True)
-    else:
+    elif source == "Upload file":
         st.info("Upload a MAGeCK gene_summary.txt file to get started.")
 
 with tab_qc:
-    uploaded_sgrna_file = st.file_uploader("Upload sgrna_summary.txt", type=["txt", "tsv"], key="sgrna_summary")
+    source = st.radio(
+        "Data source",
+        ["Upload file", "Use last pipeline run"],
+        key="qc_source",
+        horizontal=True,
+    )
 
-    if uploaded_sgrna_file is not None:
-        sgrna_df = load_sgrna_summary(uploaded_sgrna_file)
+    if source == "Use last pipeline run":
+        if "pipeline_sgrna_summary" not in st.session_state:
+            st.warning("No pipeline run yet. Run the pipeline in the 'Run Pipeline' tab first, or switch to 'Upload file'.")
+            sgrna_df = None
+        else:
+            sgrna_df = load_sgrna_summary(st.session_state["pipeline_sgrna_summary"])
+            st.caption(f"Using: {st.session_state['pipeline_sgrna_summary']}")
+    else:
+        uploaded_sgrna_file = st.file_uploader("Upload sgrna_summary.txt", type=["txt", "tsv"], key="sgrna_summary")
+        sgrna_df = load_sgrna_summary(uploaded_sgrna_file) if uploaded_sgrna_file is not None else None
 
+    if sgrna_df is not None:
         numeric_columns = sgrna_df.select_dtypes(include="number").columns.tolist()
         count_column = st.selectbox("Column to use as read count", numeric_columns)
 
@@ -56,15 +84,29 @@ with tab_qc:
 
         st.subheader("sgRNA summary table")
         st.dataframe(sgrna_df, use_container_width=True)
-    else:
+    elif source == "Upload file":
         st.info("Upload a MAGeCK sgrna_summary.txt file to get started.")
 
 with tab_mapping:
-    uploaded_count_file = st.file_uploader("Upload countsummary.txt", type=["txt", "tsv"], key="countsummary")
+    source = st.radio(
+        "Data source",
+        ["Upload file", "Use last pipeline run"],
+        key="mapping_source",
+        horizontal=True,
+    )
 
-    if uploaded_count_file is not None:
-        count_df = load_countsummary(uploaded_count_file)
+    if source == "Use last pipeline run":
+        if "pipeline_countsummary" not in st.session_state:
+            st.warning("No pipeline run yet. Run the pipeline in the 'Run Pipeline' tab first, or switch to 'Upload file'.")
+            count_df = None
+        else:
+            count_df = load_countsummary(st.session_state["pipeline_countsummary"])
+            st.caption(f"Using: {st.session_state['pipeline_countsummary']}")
+    else:
+        uploaded_count_file = st.file_uploader("Upload countsummary.txt", type=["txt", "tsv"], key="countsummary")
+        count_df = load_countsummary(uploaded_count_file) if uploaded_count_file is not None else None
 
+    if count_df is not None:
         low_mapping = count_df[count_df["Percentage"] < 0.8]
         if not low_mapping.empty:
             st.warning(f"Samples below 80% mapping: {', '.join(low_mapping['Label'])}")
@@ -74,17 +116,31 @@ with tab_mapping:
 
         st.subheader("Count summary table")
         st.dataframe(count_df, use_container_width=True)
-    else:
+    elif source == "Upload file":
         st.info("Upload a MAGeCK countsummary.txt file to get started.")
 
 with tab_replicates:
-    uploaded_counts_file = st.file_uploader(
-        "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="counts"
+    source = st.radio(
+        "Data source",
+        ["Upload file", "Use last pipeline run"],
+        key="replicates_source",
+        horizontal=True,
     )
 
-    if uploaded_counts_file is not None:
-        counts_df = pd.read_csv(uploaded_counts_file, sep="\t")
+    if source == "Use last pipeline run":
+        if "pipeline_count_table" not in st.session_state:
+            st.warning("No pipeline run yet. Run the pipeline in the 'Run Pipeline' tab first, or switch to 'Upload file'.")
+            counts_df = None
+        else:
+            counts_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
+            st.caption(f"Using: {st.session_state['pipeline_count_table']}")
+    else:
+        uploaded_counts_file = st.file_uploader(
+            "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="counts"
+        )
+        counts_df = pd.read_csv(uploaded_counts_file, sep="\t") if uploaded_counts_file is not None else None
 
+    if counts_df is not None:
         numeric_columns = counts_df.select_dtypes(include="number").columns.tolist()
         col1, col2 = st.columns(2)
         x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
@@ -98,7 +154,7 @@ with tab_replicates:
 
         st.subheader("Count table")
         st.dataframe(counts_df, use_container_width=True)
-    else:
+    elif source == "Upload file":
         st.info("Upload a per-sample sgRNA count table to compare replicates.")
 
 with tab_pipeline:
@@ -183,11 +239,11 @@ with tab_pipeline:
                 st.error("mageck test failed. See log below.")
                 st.code(test_result.stderr or test_result.stdout)
             else:
+                st.session_state["pipeline_gene_summary"] = work_dir / f"{output_prefix}_test.gene_summary.txt"
+                st.session_state["pipeline_sgrna_summary"] = work_dir / f"{output_prefix}_test.sgrna_summary.txt"
+                st.session_state["pipeline_countsummary"] = work_dir / f"{output_prefix}.countsummary.txt"
+                st.session_state["pipeline_count_table"] = work_dir / f"{output_prefix}.count.txt"
+
                 st.success("mageck test completed! Results saved to: " + str(work_dir))
                 with st.expander("mageck test log"):
                     st.code(test_result.stdout + test_result.stderr)
-
-                st.info(
-                    "Go to the Volcano Plot, QC Report or Mapping QC tabs and upload the "
-                    f"generated files from `{work_dir}` to visualize the results."
-                )
