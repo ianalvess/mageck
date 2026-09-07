@@ -119,3 +119,48 @@ def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=0.8, line_dash="dash", line_color="red", annotation_text="80% threshold")
     fig.update_layout(height=400)
     return fig
+
+def build_replicate_correlation_plot(
+    df: pd.DataFrame,
+    x_column: str,
+    y_column: str,
+) -> go.Figure:
+    """Build a scatter plot comparing read counts between two replicate samples.
+
+    Args:
+        df: DataFrame with per-sgRNA count columns (e.g. from a raw
+            count table with one column per sample).
+        x_column: name of the column for the first replicate.
+        y_column: name of the column for the second replicate.
+
+    Returns:
+        A Plotly Figure ready to be rendered, including the Pearson
+        correlation coefficient in the title.
+    """
+    correlation = df[x_column].corr(df[y_column])
+
+    fig = px.scatter(
+        df,
+        x=x_column,
+        y=y_column,
+        hover_name="sgrna" if "sgrna" in df.columns else None,
+        labels={x_column: x_column, y_column: y_column},
+        title=f"Replicate Correlation: {x_column} vs {y_column} (r = {correlation:.3f})",
+    )
+
+    # Manual linear trendline (avoids the statsmodels dependency)
+    slope, intercept = np.polyfit(df[x_column], df[y_column], deg=1)
+    x_range = np.array([df[x_column].min(), df[x_column].max()])
+    y_range = slope * x_range + intercept
+    fig.add_trace(
+        go.Scatter(
+            x=x_range,
+            y=y_range,
+            mode="lines",
+            name="Trendline",
+            line=dict(color="gray", dash="dash"),
+        )
+    )
+
+    fig.update_layout(height=500)
+    return fig
