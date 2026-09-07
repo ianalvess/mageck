@@ -1,17 +1,25 @@
 import streamlit as st
 
-from parser import load_gene_summary, load_sgrna_summary, load_countsummary
+import pandas as pd
+
+from pathlib import Path
+
+from pipeline import run_mageck_count, run_mageck_test
+
 from plots import (
     build_volcano_plot,
     build_read_distribution_plot,
     compute_gini_index,
     build_mapping_summary_plot,
+    build_replicate_correlation_plot,
 )
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
 st.title("MAGeCK Dashboard")
 
-tab_volcano, tab_qc, tab_mapping = st.tabs(["Volcano Plot", "QC Report", "Mapping QC"])
+tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates = st.tabs(
+    ["Run Pipeline", "Volcano Plot", "QC Report", "Mapping QC", "Replicate Correlation"]
+)
 
 with tab_volcano:
     uploaded_gene_file = st.file_uploader("Upload gene_summary.txt", type=["txt", "tsv"], key="gene_summary")
@@ -68,3 +76,118 @@ with tab_mapping:
         st.dataframe(count_df, use_container_width=True)
     else:
         st.info("Upload a MAGeCK countsummary.txt file to get started.")
+
+with tab_replicates:
+    uploaded_counts_file = st.file_uploader(
+        "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="counts"
+    )
+
+    if uploaded_counts_file is not None:
+        counts_df = pd.read_csv(uploaded_counts_file, sep="\t")
+
+        numeric_columns = counts_df.select_dtypes(include="number").columns.tolist()
+        col1, col2 = st.columns(2)
+        x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
+        y_column = col2.selectbox("Replicate 2", numeric_columns, index=min(1, len(numeric_columns) - 1))
+
+        if x_column == y_column:
+            st.warning("Select two different columns to compare.")
+        else:
+            fig = build_replicate_correlation_plot(counts_df, x_column, y_column)
+            st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Count table")
+        st.dataframe(counts_df, use_container_width=True)
+    else:
+        st.info("Upload a per-sample sgRNA count table to compare replicates.")
+
+with tab_pipeline:
+    st.subheader("1. Upload input files")
+
+    library_file = st.file_uploader("sgRNA library file (CSV)", type=["csv"], key="library")
+
+    num_samples = st.number_input("Number of FASTQ samples", min_value=2, max_value=10, value=2, step=1)
+
+    fastq_files = []
+    sample_labels = []
+    for i in range(int(num_samples)):
+        col1, col2 = st.columns([2, 1])
+        fastq_file = col1.file_uploader(f"FASTQ file #{i + 1}", type=["fastq", "fq", "gz"], key=f"fastq_{i}")
+        label = col2.text_input(f"Label #{i + 1}", value=f"sample{i + 1}", key=f"label_{i}")
+        fastq_files.append(fastq_file)
+        sample_labels.append(label)
+
+        st.subheader("2. Define groups")
+    control_labels = st.multiselect("Control sample labels", options=sample_labels)
+    treatment_labels = st.multiselect("Treatment sample labels", options=sample_labels)
+
+    overlap = set(control_labels) & set(treatment_labels)
+
+    st.subheader("3. Run")
+    output_prefix = st.text_input("Output prefix", value="mageck_run")
+
+    ready_to_run = (
+        library_file is not None
+        and all(f is not None for f in fastq_files)
+        and len(control_labels) > 0
+        and len(treatment_labels) > 0
+        and not overlap
+        and output_prefix.strip() != ""
+    )
+
+    if overlap:
+        st.error(f"These labels appear in both groups: {', '.join(overlap)}. A sample can't be both control and treatment.")
+    elif not ready_to_run:
+        st.info("Upload the library file, all FASTQ files, and assign at least one control and one treatment label to continue.")
+
+    if st.button("Run MAGeCK pipeline", disabled=not ready_to_run):
+        work_dir = Path("data/pipeline_runs") / output_prefix
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        saved_fastq_paths = []
+        for fastq_file, label in zip(fastq_files, sample_labels):
+            fastq_path = work_dir / fastq_file.name
+            fastq_path.write_bytes(fastq_file.getvalue())
+            saved_fastq_paths.append(fastq_path)
+
+        library_path = work_dir / library_file.name
+        library_path.write_bytes(library_file.getvalue())
+
+        with st.spinner("Running mageck count..."):
+            count_result = run_mageck_count(
+                fastq_paths=saved_fastq_paths,
+                sample_labels=sample_labels,
+                library_path=library_path,
+                output_dir=work_dir,
+                output_prefix=output_prefix,
+            )
+
+        if not count_result.success:
+            st.error("mageck count failed. See log below.")
+            st.code(count_result.stderr or count_result.stdout)
+        else:
+            st.success("mageck count completed.")
+            with st.expander("mageck count log"):
+                st.code(count_result.stdout + count_result.stderr)
+
+            with st.spinner("Running mageck test..."):
+                test_result = run_mageck_test(
+                    count_table_path=work_dir / f"{output_prefix}.count.txt",
+                    treatment_labels=treatment_labels,
+                    control_labels=control_labels,
+                    output_dir=work_dir,
+                    output_prefix=f"{output_prefix}_test",
+                )
+
+            if not test_result.success:
+                st.error("mageck test failed. See log below.")
+                st.code(test_result.stderr or test_result.stdout)
+            else:
+                st.success("mageck test completed! Results saved to: " + str(work_dir))
+                with st.expander("mageck test log"):
+                    st.code(test_result.stdout + test_result.stderr)
+
+                st.info(
+                    "Go to the Volcano Plot, QC Report or Mapping QC tabs and upload the "
+                    f"generated files from `{work_dir}` to visualize the results."
+                )
