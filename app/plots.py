@@ -175,3 +175,43 @@ def figure_to_png_bytes(fig: go.Figure) -> bytes:
         PNG image data as bytes.
     """
     return fig.to_image(format="png", scale=2)
+
+def build_html_report(figures: dict[str, go.Figure], title: str = "MAGeCK Dashboard Report") -> str:
+    """Combine multiple Plotly figures into a single standalone HTML report.
+
+    Args:
+        figures: mapping of section title (e.g. "Volcano Plot") to the
+            corresponding Plotly Figure. Only non-None entries are included.
+        title: title shown at the top of the report.
+
+    Returns:
+        A complete HTML document as a string, with Plotly's JS embedded
+        so it can be opened offline in any browser.
+    """
+    sections = []
+    for i, (section_title, fig) in enumerate(figures.items()):
+        if fig is None:
+            continue
+        # Only embed the Plotly JS library once, in the first chart
+        include_js = "cdn" if i == 0 else False
+        chart_html = fig.to_html(full_html=False, include_plotlyjs=include_js)
+        sections.append(f"<h2>{section_title}</h2>\n{chart_html}")
+
+    body = "\n<hr>\n".join(sections)
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>
+    body {{ font-family: sans-serif; max-width: 1100px; margin: 40px auto; padding: 0 20px; }}
+    h1 {{ border-bottom: 2px solid #333; padding-bottom: 10px; }}
+    h2 {{ margin-top: 40px; color: #444; }}
+</style>
+</head>
+<body>
+<h1>{title}</h1>
+{body}
+</body>
+</html>"""
