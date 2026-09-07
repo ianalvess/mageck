@@ -1,6 +1,13 @@
-FROM python:3.11-slim
+FROM condaforge/miniforge3:latest
 
 WORKDIR /app
+
+# Create a dedicated conda environment with MAGeCK from Bioconda
+RUN conda create -n mageck-env -c bioconda -c conda-forge mageck=0.5.9.5 python=3.11 -y \
+    && conda clean -afy
+
+# Make the conda environment's binaries (including mageck) available on PATH
+ENV PATH="/opt/conda/envs/mageck-env/bin:$PATH"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
