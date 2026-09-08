@@ -119,3 +119,43 @@ def run_mageck_test(
         stderr=result.stderr,
         output_prefix=output_prefix,
     )
+
+def run_mageck_mle(
+    count_table_path: str | Path,
+    design_matrix_path: str | Path,
+    output_dir: str | Path,
+    output_prefix: str = "mageck_run",
+) -> PipelineResult:
+    """Run `mageck mle` on a count table with a design matrix.
+
+    Args:
+        count_table_path: path to the count.txt file (from run_mageck_count).
+        design_matrix_path: path to a MAGeCK-formatted design matrix file.
+        output_dir: directory where output files will be written.
+        output_prefix: prefix used for all output file names.
+
+    Returns:
+        A PipelineResult with success status and captured logs.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    command = [
+        "mageck",
+        "mle",
+        "-k",
+        str(count_table_path),
+        "-d",
+        str(design_matrix_path),
+        "-n",
+        str(output_dir / output_prefix),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True)
+
+    return PipelineResult(
+        success=result.returncode == 0,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        output_prefix=output_prefix,
+    )
