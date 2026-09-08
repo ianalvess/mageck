@@ -84,3 +84,28 @@ def load_countsummary(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"countsummary file is missing expected columns: {missing}")
 
     return df
+
+def load_mle_gene_summary(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
+    """Load and clean a MAGeCK MLE gene_summary.txt file.
+
+    Unlike `mageck test`, `mageck mle` output can contain one or more
+    conditions, each with its own <condition>|beta, <condition>|z,
+    <condition>|p-value, <condition>|fdr columns.
+
+    Args:
+        path: path to the gene_summary.txt file produced by `mageck mle`.
+
+    Returns:
+        A tuple of (DataFrame, list of condition names found in the file).
+    """
+    df = pd.read_csv(path, sep="\t", na_values=["NA", "na", ""])
+
+    if "Gene" not in df.columns:
+        raise ValueError("MLE gene_summary file is missing the expected 'Gene' column")
+
+    conditions = sorted({col.split("|")[0] for col in df.columns if col.endswith("|beta")})
+
+    if not conditions:
+        raise ValueError("No <condition>|beta columns found in this MLE gene_summary file")
+
+    return df, conditions
