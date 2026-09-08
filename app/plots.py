@@ -389,3 +389,41 @@ def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
     fig.update_traces(textposition="top center", marker=dict(size=12))
     fig.update_layout(height=500)
     return fig
+
+def build_beta_score_plot(
+    df: pd.DataFrame,
+    condition: str,
+    fdr_threshold: float = 0.05,
+) -> go.Figure:
+    """Build a volcano-style plot of MAGeCK MLE beta scores for one condition.
+
+    Args:
+        df: DataFrame produced by app.parser.load_mle_gene_summary.
+        condition: name of the condition to plot (e.g. "PLX").
+        fdr_threshold: FDR cutoff used to color genes as significant.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    beta_col = f"{condition}|beta"
+    fdr_col = f"{condition}|fdr"
+
+    plot_df = df.copy()
+    plot_df["neg_log10_fdr"] = -np.log10(plot_df[fdr_col].clip(lower=1e-300))
+    is_significant = plot_df[fdr_col] < fdr_threshold
+    plot_df["significance"] = is_significant.map({True: "Significant", False: "Not significant"})
+
+    fig = px.scatter(
+        plot_df,
+        x=beta_col,
+        y="neg_log10_fdr",
+        color="significance",
+        color_discrete_map={"Significant": "#d62728", "Not significant": "#7f7f7f"},
+        hover_name="Gene",
+        hover_data={fdr_col: ":.2e"},
+        labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": "-log10(FDR)"},
+        title=f"MLE Beta Score Plot: {condition}",
+    )
+    fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
+    fig.update_layout(height=600)
+    return fig
