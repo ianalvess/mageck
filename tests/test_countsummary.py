@@ -5,6 +5,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.parser import load_countsummary
 
+from app.plots import build_zerocounts_plot
+
 fixture = Path(__file__).parent / "fixtures_countsummary.txt"
 df = load_countsummary(fixture)
 
@@ -17,3 +19,7 @@ low_mapping = df[df["Percentage"] < 0.8]
 print(f"\nSamples with mapping < 80%: {low_mapping['Label'].tolist()}")
 assert set(low_mapping["Label"]) == {"treatment_rep1", "treatment_rep2"}
 print("OK: low-mapping samples correctly identified")
+
+zerocounts_fig = build_zerocounts_plot(df)
+assert zerocounts_fig.data, "Figure has no traces"
+print(f"OK: zerocounts figure built with {len(zerocounts_fig.data)} trace(s)")
