@@ -9,8 +9,15 @@ RUN conda create -n mageck-env -c bioconda -c conda-forge mageck=0.5.9.5 python=
 # Make the conda environment's binaries (including mageck) available on PATH
 ENV PATH="/opt/conda/envs/mageck-env/bin:$PATH"
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
+    libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 \
+    libcairo2 libasound2t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && plotly_get_chrome -y
 
 COPY app/ ./app/
 
