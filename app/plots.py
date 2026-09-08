@@ -165,6 +165,7 @@ def build_replicate_correlation_plot(
     fig.update_layout(height=500)
     return fig
 
+
 def figure_to_png_bytes(fig: go.Figure) -> bytes:
     """Convert a Plotly figure to PNG bytes, for use with st.download_button.
 
@@ -215,3 +216,176 @@ def build_html_report(figures: dict[str, go.Figure], title: str = "MAGeCK Dashbo
 {body}
 </body>
 </html>"""
+
+def compare_gene_summaries(
+    df1: pd.DataFrame,
+    df2: pd.DataFrame,
+    fdr_threshold: float = 0.05,
+    label1: str = "Screen 1",
+    label2: str = "Screen 2",
+) -> pd.DataFrame:
+    """Merge two gene_summary DataFrames for cross-screen comparison.
+
+    Args:
+        df1: DataFrame from app.parser.load_gene_summary (first screen).
+        df2: DataFrame from app.parser.load_gene_summary (second screen).
+        fdr_threshold: FDR cutoff used to flag genes as significant.
+        label1: display name for the first screen's columns.
+        label2: display name for the second screen's columns.
+
+    Returns:
+        A merged DataFrame with one row per gene present in either
+        screen, with per-screen LFC/FDR columns and a "concordance"
+        column ("Both", "<label1> only", "<label2> only", "Neither").
+    """
+    merged = df1[["id", "best_lfc", "best_fdr"]].merge(
+        df2[["id", "best_lfc", "best_fdr"]],
+        on="id",
+        how="outer",
+        suffixes=(f"_{label1}", f"_{label2}"),
+    )
+
+    sig1 = merged[f"best_fdr_{label1}"] < fdr_threshold
+    sig2 = merged[f"best_fdr_{label2}"] < fdr_threshold
+
+    conditions = [sig1 & sig2, sig1 & ~sig2, ~sig1 & sig2]
+    choices = ["Both", f"{label1} only", f"{label2} only"]
+    merged["concordance"] = np.select(conditions, choices, default="Neither")
+
+    return merged
+
+
+def build_screen_comparison_plot(
+    merged_df: pd.DataFrame,
+    label1: str = "Screen 1",
+    label2: str = "Screen 2",
+) -> go.Figure:
+    """Build a scatter plot comparing gene LFCs between two screens.
+
+    Args:
+        merged_df: output of compare_gene_summaries.
+        label1: display name used for the first screen's axis.
+        label2: display name used for the second screen's axis.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    fig = px.scatter(
+        merged_df,
+        x=f"best_lfc_{label1}",
+        y=f"best_lfc_{label2}",
+        color="concordance",
+        hover_name="id",
+        labels={f"best_lfc_{label1}": f"LFC ({label1})", f"best_lfc_{label2}": f"LFC ({label2})"},
+        title=f"Gene LFC Comparison: {label1} vs {label2}",
+        color_discrete_map={
+            "Both": "#2ca02c",
+            f"{label1} only": "#1f77b4",
+            f"{label2} only": "#ff7f0e",
+            "Neither": "#cccccc",
+        },
+    )
+    fig.add_shape(
+        type="line",
+        x0=merged_df[f"best_lfc_{label1}"].min(),
+        y0=merged_df[f"best_lfc_{label1}"].min(),
+        x1=merged_df[f"best_lfc_{label1}"].max(),
+        y1=merged_df[f"best_lfc_{label1}"].max(),
+        line=dict(color="gray", dash="dot"),
+    )
+    fig.update_layout(height=600)
+    return fig
+
+def build_zerocounts_plot(df: pd.DataFrame) -> go.Figure:
+    """Build a bar chart of sgRNAs with zero reads per sample (log10 scale).
+
+    Args:
+        df: DataFrame produced by app.parser.load_countsummary.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    plot_df = df.copy()
+    plot_df["log10_zerocounts"] = np.log10(plot_df["Zerocounts"].clip(lower=1))
+
+    fig = px.bar(
+        plot_df,
+        x="Label",
+        y="log10_zerocounts",
+        labels={"Label": "Sample", "log10_zerocounts": "log10(sgRNAs with zero reads)"},
+        title="sgRNAs with Zero Read Count per Sample",
+    )
+    fig.update_layout(height=400, showlegend=False)
+    return fig
+
+def build_correlation_heatmap(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
+    """Build a clustered-look correlation heatmap across multiple samples.
+
+    Args:
+        df: DataFrame with one row per sgRNA and one column per sample.
+        sample_columns: names of the numeric columns to correlate.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    corr_matrix = df[sample_columns].corr()
+
+    fig = px.imshow(
+        corr_matrix,
+        text_auto=".2f",
+        color_continuous_scale="RdBu_r",
+        zmin=-1,
+        zmax=1,
+        labels=dict(color="Pearson r"),
+        title="Sample Correlation Heatmap",
+    )
+    fig.update_layout(height=500)
+    return fig
+
+
+def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
+    """Build a 2D PCA scatter plot of samples based on their sgRNA counts.
+
+    Args:
+        df: DataFrame with one row per sgRNA and one column per sample.
+        sample_columns: names of the numeric columns to use as features.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    # Samples as rows, sgRNAs as features: transpose the count matrix
+    data = df[sample_columns].T.to_numpy()
+
+    # Standardize each sgRNA (column) to mean 0 / std 1 before PCA
+    data_centered = data - data.mean(axis=0)
+    stds = data.std(axis=0)
+    stds[stds == 0] = 1  # avoid division by zero for constant sgRNAs
+    data_scaled = data_centered / stds
+
+    # PCA via SVD (no extra dependency needed beyond numpy)
+    u, s, vt = np.linalg.svd(data_scaled, full_matrices=False)
+    scores = u * s
+    explained_variance = (s**2) / np.sum(s**2)
+
+    pca_df = pd.DataFrame(
+        {
+            "sample": sample_columns,
+            "PC1": scores[:, 0],
+            "PC2": scores[:, 1] if scores.shape[1] > 1 else 0,
+        }
+    )
+
+    fig = px.scatter(
+        pca_df,
+        x="PC1",
+        y="PC2",
+        text="sample",
+        labels={
+            "PC1": f"PC1 ({explained_variance[0]:.1%})",
+            "PC2": f"PC2 ({explained_variance[1]:.1%})" if len(explained_variance) > 1 else "PC2",
+        },
+        title="PCA of Samples",
+    )
+    fig.update_traces(textposition="top center", marker=dict(size=12))
+    fig.update_layout(height=500)
+    return fig
