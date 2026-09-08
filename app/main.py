@@ -3,6 +3,7 @@ import pandas as pd
 from pathlib import Path
 
 from parser import load_gene_summary, load_sgrna_summary, load_countsummary
+
 from plots import (
     build_volcano_plot,
     build_read_distribution_plot,
@@ -11,7 +12,11 @@ from plots import (
     build_replicate_correlation_plot,
     figure_to_png_bytes,
     build_html_report,
+    compare_gene_summaries,
+    build_screen_comparison_plot,
+    build_zerocounts_plot,
 )
+
 from pipeline import run_mageck_count, run_mageck_test
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
@@ -23,102 +28,101 @@ volcano_fig = None
 qc_fig = None
 mapping_fig = None
 replicate_fig = None
+comparison_fig = None
 
-tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates = st.tabs(
-    ["Run Pipeline", "Volcano Plot", "QC Report", "Mapping QC", "Replicate Correlation"]
+tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates, tab_comparison = st.tabs(
+    ["Run Pipeline", "Volcano Plot", "QC Report", "Mapping QC", "Replicate Correlation", "Screen Comparison"]
 )
 
 with tab_pipeline:
-    st.subheader("1. Upload input files")
+    st.subheader("1. Select input files")
+    st.caption("Files must already be inside the data/input folder (mounted into the container).")
 
-    library_file = st.file_uploader("sgRNA library file (CSV)", type=["csv"], key="library")
+    data_input_dir = Path("data/input")
+    available_files = sorted(str(p.relative_to(data_input_dir)) for p in data_input_dir.rglob("*") if p.is_file())
 
-    num_samples = st.number_input("Number of FASTQ samples", min_value=2, max_value=10, value=2, step=1)
+    if not available_files:
+        st.warning("No files found in data/input. Copy your FASTQ and library files there first.")
+    else:
+        library_choice = st.selectbox("sgRNA library file (CSV)", available_files, key="library_choice")
 
-    fastq_files = []
-    sample_labels = []
-    for i in range(int(num_samples)):
-        col1, col2 = st.columns([2, 1])
-        fastq_file = col1.file_uploader(f"FASTQ file #{i + 1}", type=["fastq", "fq", "gz"], key=f"fastq_{i}")
-        label = col2.text_input(f"Label #{i + 1}", value=f"sample{i + 1}", key=f"label_{i}")
-        fastq_files.append(fastq_file)
-        sample_labels.append(label)
+        num_samples = st.number_input("Number of FASTQ samples", min_value=2, max_value=10, value=2, step=1)
 
-    st.subheader("2. Define groups")
-    control_labels = st.multiselect("Control sample labels", options=sample_labels)
-    treatment_labels = st.multiselect("Treatment sample labels", options=sample_labels)
+        fastq_choices = []
+        sample_labels = []
+        for i in range(int(num_samples)):
+            col1, col2 = st.columns([2, 1])
+            fastq_choice = col1.selectbox(f"FASTQ file #{i + 1}", available_files, key=f"fastq_choice_{i}")
+            label = col2.text_input(f"Label #{i + 1}", value=f"sample{i + 1}", key=f"label_{i}")
+            fastq_choices.append(fastq_choice)
+            sample_labels.append(label)
 
-    overlap = set(control_labels) & set(treatment_labels)
+        st.subheader("2. Define groups")
+        control_labels = st.multiselect("Control sample labels", options=sample_labels)
+        treatment_labels = st.multiselect("Treatment sample labels", options=sample_labels)
 
-    st.subheader("3. Run")
-    output_prefix = st.text_input("Output prefix", value="mageck_run")
+        overlap = set(control_labels) & set(treatment_labels)
 
-    ready_to_run = (
-        library_file is not None
-        and all(f is not None for f in fastq_files)
-        and len(control_labels) > 0
-        and len(treatment_labels) > 0
-        and not overlap
-        and output_prefix.strip() != ""
-    )
+        st.subheader("3. Run")
+        output_prefix = st.text_input("Output prefix", value="mageck_run")
 
-    if overlap:
-        st.error(f"These labels appear in both groups: {', '.join(overlap)}. A sample can't be both control and treatment.")
-    elif not ready_to_run:
-        st.info("Upload the library file, all FASTQ files, and assign at least one control and one treatment label to continue.")
+        ready_to_run = (
+            len(control_labels) > 0
+            and len(treatment_labels) > 0
+            and not overlap
+            and output_prefix.strip() != ""
+        )
 
-    if st.button("Run MAGeCK pipeline", disabled=not ready_to_run):
-        work_dir = Path("data/pipeline_runs") / output_prefix
-        work_dir.mkdir(parents=True, exist_ok=True)
+        if overlap:
+            st.error(f"These labels appear in both groups: {', '.join(overlap)}. A sample can't be both control and treatment.")
+        elif not ready_to_run:
+            st.info("Select the library file, all FASTQ files, and assign at least one control and one treatment label to continue.")
 
-        saved_fastq_paths = []
-        for fastq_file, label in zip(fastq_files, sample_labels):
-            fastq_path = work_dir / fastq_file.name
-            fastq_path.write_bytes(fastq_file.getvalue())
-            saved_fastq_paths.append(fastq_path)
+        if st.button("Run MAGeCK pipeline", disabled=not ready_to_run):
+            work_dir = Path("data/pipeline_runs") / output_prefix
+            work_dir.mkdir(parents=True, exist_ok=True)
 
-        library_path = work_dir / library_file.name
-        library_path.write_bytes(library_file.getvalue())
+            fastq_paths = [data_input_dir / f for f in fastq_choices]
+            library_path = data_input_dir / library_choice
 
-        with st.spinner("Running mageck count..."):
-            count_result = run_mageck_count(
-                fastq_paths=saved_fastq_paths,
-                sample_labels=sample_labels,
-                library_path=library_path,
-                output_dir=work_dir,
-                output_prefix=output_prefix,
-            )
-
-        if not count_result.success:
-            st.error("mageck count failed. See log below.")
-            st.code(count_result.stderr or count_result.stdout)
-        else:
-            st.success("mageck count completed.")
-            with st.expander("mageck count log"):
-                st.code(count_result.stdout + count_result.stderr)
-
-            with st.spinner("Running mageck test..."):
-                test_result = run_mageck_test(
-                    count_table_path=work_dir / f"{output_prefix}.count.txt",
-                    treatment_labels=treatment_labels,
-                    control_labels=control_labels,
+            with st.spinner("Running mageck count... this can take a while for large FASTQ files."):
+                count_result = run_mageck_count(
+                    fastq_paths=fastq_paths,
+                    sample_labels=sample_labels,
+                    library_path=library_path,
                     output_dir=work_dir,
-                    output_prefix=f"{output_prefix}_test",
+                    output_prefix=output_prefix,
                 )
 
-            if not test_result.success:
-                st.error("mageck test failed. See log below.")
-                st.code(test_result.stderr or test_result.stdout)
+            if not count_result.success:
+                st.error("mageck count failed. See log below.")
+                st.code(count_result.stderr or count_result.stdout)
             else:
-                st.session_state["pipeline_gene_summary"] = work_dir / f"{output_prefix}_test.gene_summary.txt"
-                st.session_state["pipeline_sgrna_summary"] = work_dir / f"{output_prefix}_test.sgrna_summary.txt"
-                st.session_state["pipeline_countsummary"] = work_dir / f"{output_prefix}.countsummary.txt"
-                st.session_state["pipeline_count_table"] = work_dir / f"{output_prefix}.count.txt"
+                st.success("mageck count completed.")
+                with st.expander("mageck count log"):
+                    st.code(count_result.stdout + count_result.stderr)
 
-                st.success("mageck test completed! Results saved to: " + str(work_dir))
-                with st.expander("mageck test log"):
-                    st.code(test_result.stdout + test_result.stderr)
+                with st.spinner("Running mageck test..."):
+                    test_result = run_mageck_test(
+                        count_table_path=work_dir / f"{output_prefix}.count.txt",
+                        treatment_labels=treatment_labels,
+                        control_labels=control_labels,
+                        output_dir=work_dir,
+                        output_prefix=f"{output_prefix}_test",
+                    )
 
+                if not test_result.success:
+                    st.error("mageck test failed. See log below.")
+                    st.code(test_result.stderr or test_result.stdout)
+                else:
+                    st.session_state["pipeline_gene_summary"] = work_dir / f"{output_prefix}_test.gene_summary.txt"
+                    st.session_state["pipeline_sgrna_summary"] = work_dir / f"{output_prefix}_test.sgrna_summary.txt"
+                    st.session_state["pipeline_countsummary"] = work_dir / f"{output_prefix}.countsummary.txt"
+                    st.session_state["pipeline_count_table"] = work_dir / f"{output_prefix}.count.txt"
+
+                    st.success("mageck test completed! Results saved to: " + str(work_dir))
+                    with st.expander("mageck test log"):
+                        st.code(test_result.stdout + test_result.stderr)
 with tab_volcano:
     source = st.radio(
         "Data source",
@@ -233,6 +237,16 @@ with tab_mapping:
             mime="image/png",
         )
 
+        zerocounts_fig = build_zerocounts_plot(count_df)
+        st.plotly_chart(zerocounts_fig, use_container_width=True)
+
+        st.download_button(
+            "Download zero-count plot (PNG)",
+            data=figure_to_png_bytes(zerocounts_fig),
+            file_name="zerocounts.png",
+            mime="image/png",
+        )
+
         st.subheader("Count summary table")
         st.dataframe(count_df, use_container_width=True)
     elif source == "Upload file":
@@ -283,6 +297,45 @@ with tab_replicates:
     elif source == "Upload file":
         st.info("Upload a per-sample sgRNA count table to compare replicates.")
 
+with tab_comparison:
+    st.write("Upload two gene_summary.txt files from different screens to compare gene-level results.")
+
+    col1, col2 = st.columns(2)
+    file1 = col1.file_uploader("Screen 1: gene_summary.txt", type=["txt", "tsv"], key="screen1")
+    label1 = col1.text_input("Screen 1 label", value="Screen 1")
+    file2 = col2.file_uploader("Screen 2: gene_summary.txt", type=["txt", "tsv"], key="screen2")
+    label2 = col2.text_input("Screen 2 label", value="Screen 2")
+
+    if file1 is not None and file2 is not None:
+        comparison_df1 = load_gene_summary(file1)
+        comparison_df2 = load_gene_summary(file2)
+
+        fdr_threshold_comp = st.number_input(
+            "FDR threshold for significance", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="comp_fdr"
+        )
+
+        merged = compare_gene_summaries(
+            comparison_df1, comparison_df2, fdr_threshold=fdr_threshold_comp, label1=label1, label2=label2
+        )
+
+        st.subheader("Concordance summary")
+        st.write(merged["concordance"].value_counts())
+
+        comparison_fig = build_screen_comparison_plot(merged, label1=label1, label2=label2)
+        st.plotly_chart(comparison_fig, use_container_width=True)
+
+        st.download_button(
+            "Download comparison plot (PNG)",
+            data=figure_to_png_bytes(comparison_fig),
+            file_name="screen_comparison.png",
+            mime="image/png",
+        )
+
+        st.subheader("Merged gene table")
+        st.dataframe(merged, use_container_width=True)
+    else:
+        st.info("Upload both gene_summary.txt files to compare.")
+
 st.divider()
 st.subheader("Full report")
 
@@ -291,6 +344,7 @@ available_figures = {
     "QC Report": qc_fig,
     "Mapping QC": mapping_fig,
     "Replicate Correlation": replicate_fig,
+    "Screen Comparison": comparison_fig,
 }
 num_available = sum(fig is not None for fig in available_figures.values())
 
