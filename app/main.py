@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 
-from parser import load_gene_summary, load_sgrna_summary, load_countsummary
+from parser import load_gene_summary, load_sgrna_summary, load_countsummary, load_mle_gene_summary
 
 from plots import (
     build_volcano_plot,
@@ -15,9 +15,12 @@ from plots import (
     compare_gene_summaries,
     build_screen_comparison_plot,
     build_zerocounts_plot,
+    build_correlation_heatmap,
+    build_pca_plot,
+    build_beta_score_plot,
 )
 
-from pipeline import run_mageck_count, run_mageck_test
+from pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
 st.title("MAGeCK Dashboard")
@@ -29,9 +32,21 @@ qc_fig = None
 mapping_fig = None
 replicate_fig = None
 comparison_fig = None
+overview_heatmap_fig = None
+overview_pca_fig = None
+mle_fig = None
 
-tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates, tab_comparison = st.tabs(
-    ["Run Pipeline", "Volcano Plot", "QC Report", "Mapping QC", "Replicate Correlation", "Screen Comparison"]
+tab_pipeline, tab_volcano, tab_qc, tab_mapping, tab_replicates, tab_overview, tab_mle, tab_comparison = st.tabs(
+    [
+        "Run Pipeline",
+        "Volcano Plot",
+        "QC Report",
+        "Mapping QC",
+        "Replicate Correlation",
+        "Sample Overview",
+        "MLE Analysis",
+        "Screen Comparison",
+    ]
 )
 
 with tab_pipeline:
@@ -297,6 +312,46 @@ with tab_replicates:
     elif source == "Upload file":
         st.info("Upload a per-sample sgRNA count table to compare replicates.")
 
+with tab_overview:
+    st.write("Upload a per-sample count table to see how all samples relate to each other.")
+
+    uploaded_overview_file = st.file_uploader(
+        "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="overview_counts"
+    )
+
+    if uploaded_overview_file is not None:
+        overview_df = pd.read_csv(uploaded_overview_file, sep="\t")
+        numeric_columns = overview_df.select_dtypes(include="number").columns.tolist()
+
+        selected_samples = st.multiselect(
+            "Samples to include", numeric_columns, default=numeric_columns
+        )
+
+        if len(selected_samples) < 2:
+            st.warning("Select at least two samples to compare.")
+        else:
+            st.subheader("Correlation heatmap")
+            overview_heatmap_fig = build_correlation_heatmap(overview_df, selected_samples)
+            st.plotly_chart(overview_heatmap_fig, use_container_width=True)
+            st.download_button(
+                "Download correlation heatmap (PNG)",
+                data=figure_to_png_bytes(overview_heatmap_fig),
+                file_name="correlation_heatmap.png",
+                mime="image/png",
+            )
+
+            st.subheader("PCA")
+            overview_pca_fig = build_pca_plot(overview_df, selected_samples)
+            st.plotly_chart(overview_pca_fig, use_container_width=True)
+            st.download_button(
+                "Download PCA plot (PNG)",
+                data=figure_to_png_bytes(overview_pca_fig),
+                file_name="pca_plot.png",
+                mime="image/png",
+            )
+    else:
+        st.info("Upload a per-sample sgRNA count table to see the sample overview.")
+
 with tab_comparison:
     st.write("Upload two gene_summary.txt files from different screens to compare gene-level results.")
 
@@ -344,8 +399,12 @@ available_figures = {
     "QC Report": qc_fig,
     "Mapping QC": mapping_fig,
     "Replicate Correlation": replicate_fig,
+    "Sample Correlation Heatmap": overview_heatmap_fig,
+    "Sample PCA": overview_pca_fig,
+    "MLE Beta Score Plot": mle_fig,
     "Screen Comparison": comparison_fig,
 }
+
 num_available = sum(fig is not None for fig in available_figures.values())
 
 if num_available == 0:
@@ -359,3 +418,107 @@ else:
         file_name="mageck_report.html",
         mime="text/html",
     )
+
+with tab_mle:
+    st.write("Run `mageck mle` with a design matrix, or upload an existing MLE gene_summary.txt to visualize.")
+
+    mle_subtab_run, mle_subtab_view = st.tabs(["Run MLE", "Visualize results"])
+
+    with mle_subtab_run:
+        data_input_dir_mle = Path("data/input")
+        available_files_mle = sorted(
+            str(p.relative_to(data_input_dir_mle)) for p in data_input_dir_mle.rglob("*") if p.is_file()
+        )
+
+        if "pipeline_count_table" not in st.session_state and not available_files_mle:
+            st.warning("No count table available. Run 'mageck count' in the Run Pipeline tab first, or add files to data/input.")
+        else:
+            count_source = st.radio(
+                "Count table source",
+                ["Use last pipeline run", "Select from data/input"],
+                key="mle_count_source",
+                horizontal=True,
+            )
+
+            if count_source == "Use last pipeline run":
+                if "pipeline_count_table" not in st.session_state:
+                    st.warning("No pipeline run yet.")
+                    mle_count_path = None
+                else:
+                    mle_count_path = st.session_state["pipeline_count_table"]
+                    st.caption(f"Using: {mle_count_path}")
+            else:
+                mle_count_choice = st.selectbox("Count table file", available_files_mle, key="mle_count_choice")
+                mle_count_path = data_input_dir_mle / mle_count_choice if mle_count_choice else None
+
+            design_choice = st.selectbox("Design matrix file", available_files_mle, key="mle_design_choice")
+            mle_output_prefix = st.text_input("Output prefix", value="mle_run", key="mle_output_prefix")
+
+            mle_ready = mle_count_path is not None and design_choice is not None and mle_output_prefix.strip() != ""
+
+            if st.button("Run MAGeCK MLE", disabled=not mle_ready):
+                mle_work_dir = Path("data/pipeline_runs") / mle_output_prefix
+                mle_work_dir.mkdir(parents=True, exist_ok=True)
+                design_path = data_input_dir_mle / design_choice
+
+                with st.spinner("Running mageck mle..."):
+                    mle_result = run_mageck_mle(
+                        count_table_path=mle_count_path,
+                        design_matrix_path=design_path,
+                        output_dir=mle_work_dir,
+                        output_prefix=mle_output_prefix,
+                    )
+
+                if not mle_result.success:
+                    st.error("mageck mle failed. See log below.")
+                    st.code(mle_result.stderr or mle_result.stdout)
+                else:
+                    st.session_state["pipeline_mle_gene_summary"] = mle_work_dir / f"{mle_output_prefix}.gene_summary.txt"
+                    st.success("mageck mle completed! Switch to 'Visualize results' to see the beta scores.")
+                    with st.expander("mageck mle log"):
+                        st.code(mle_result.stdout + mle_result.stderr)
+
+    with mle_subtab_view:
+        mle_source = st.radio(
+            "Data source",
+            ["Upload file", "Use last MLE run"],
+            key="mle_view_source",
+            horizontal=True,
+        )
+
+        if mle_source == "Use last MLE run":
+            if "pipeline_mle_gene_summary" not in st.session_state:
+                st.warning("No MLE run yet. Run MLE in the 'Run MLE' sub-tab first, or switch to 'Upload file'.")
+                mle_df, mle_conditions = None, []
+            else:
+                mle_df, mle_conditions = load_mle_gene_summary(st.session_state["pipeline_mle_gene_summary"])
+                st.caption(f"Using: {st.session_state['pipeline_mle_gene_summary']}")
+        else:
+            uploaded_mle_file = st.file_uploader(
+                "Upload MLE gene_summary.txt", type=["txt", "tsv"], key="mle_upload"
+            )
+            if uploaded_mle_file is not None:
+                mle_df, mle_conditions = load_mle_gene_summary(uploaded_mle_file)
+            else:
+                mle_df, mle_conditions = None, []
+
+        if mle_df is not None:
+            selected_condition = st.selectbox("Condition", mle_conditions)
+            mle_fdr_threshold = st.number_input(
+                "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
+            )
+
+            mle_fig = build_beta_score_plot(mle_df, condition=selected_condition, fdr_threshold=mle_fdr_threshold)
+            st.plotly_chart(mle_fig, use_container_width=True)
+
+            st.download_button(
+                "Download beta score plot (PNG)",
+                data=figure_to_png_bytes(mle_fig),
+                file_name=f"beta_score_{selected_condition}.png",
+                mime="image/png",
+            )
+
+            st.subheader("MLE gene summary table")
+            st.dataframe(mle_df, use_container_width=True)
+        elif mle_source == "Upload file":
+            st.info("Upload a MAGeCK MLE gene_summary.txt file to get started.")
