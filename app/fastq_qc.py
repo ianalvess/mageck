@@ -6,7 +6,9 @@ file to compute GC content and per-base quality statistics, without
 loading the whole file into memory at once.
 """
 
+import array
 import gzip
+import statistics
 from pathlib import Path
 
 import pandas as pd
@@ -65,27 +67,31 @@ def compute_gc_distribution(path: str | Path, max_reads: int | None = None) -> p
 
 
 def compute_quality_profile(path: str | Path, max_reads: int | None = None) -> pd.DataFrame:
-    """Compute mean Phred quality score at each base position, across a FASTQ file.
+    """Compute median Phred quality score at each base position, across a FASTQ file.
 
     Assumes Phred+33 encoding (the standard for modern Illumina data).
+    Uses a byte array per position (1 byte per quality score) to keep
+    memory usage as low as possible for very large files, since the
+    true median requires keeping every value in memory (unlike a
+    running mean).
 
     Args:
         path: path to a FASTQ file.
         max_reads: if set, only process this many reads; otherwise process all.
 
     Returns:
-        A DataFrame with columns "position" (1-indexed) and "mean_quality".
+        A DataFrame with columns "position" (1-indexed) and "median_quality".
     """
-    position_sums: dict[int, float] = {}
-    position_counts: dict[int, int] = {}
+    position_values: dict[int, array.array] = {}
 
     for _sequence, quality in sample_fastq_reads(path, max_reads=max_reads):
         for i, char in enumerate(quality):
             phred_score = ord(char) - 33
-            position_sums[i] = position_sums.get(i, 0) + phred_score
-            position_counts[i] = position_counts.get(i, 0) + 1
+            if i not in position_values:
+                position_values[i] = array.array("B")
+            position_values[i].append(phred_score)
 
-    positions = sorted(position_sums.keys())
-    mean_qualities = [position_sums[p] / position_counts[p] for p in positions]
+    positions = sorted(position_values.keys())
+    median_qualities = [statistics.median(position_values[p]) for p in positions]
 
-    return pd.DataFrame({"position": [p + 1 for p in positions], "mean_quality": mean_qualities})
+    return pd.DataFrame({"position": [p + 1 for p in positions], "median_quality": median_qualities})
