@@ -76,6 +76,7 @@ def run_mageck_count(
         output_prefix=output_prefix,
     )
 
+
 def run_mageck_test(
     count_table_path: str | Path,
     treatment_labels: list[str],
@@ -119,6 +120,7 @@ def run_mageck_test(
         stderr=result.stderr,
         output_prefix=output_prefix,
     )
+
 
 def run_mageck_mle(
     count_table_path: str | Path,
