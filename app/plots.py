@@ -30,7 +30,6 @@ def build_volcano_plot(
     """
     plot_df = df.copy()
 
-    # Avoid log10(0) errors when FDR is exactly 0
     plot_df["neg_log10_fdr"] = -np.log10(plot_df["best_fdr"].clip(lower=1e-300))
 
     is_significant = (plot_df["best_fdr"] < fdr_threshold) & (
@@ -57,6 +56,7 @@ def build_volcano_plot(
     fig.update_layout(height=600)
 
     return fig
+
 
 def compute_gini_index(values: pd.Series) -> float:
     """Compute the Gini index of a distribution of read counts.
@@ -98,6 +98,7 @@ def build_read_distribution_plot(df: pd.DataFrame, count_column: str) -> go.Figu
     fig.update_layout(height=400, showlegend=False)
     return fig
 
+
 def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
     """Build a grouped bar chart of mapping percentage per sample.
 
@@ -119,6 +120,7 @@ def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
     fig.add_hline(y=0.8, line_dash="dash", line_color="red", annotation_text="80% threshold")
     fig.update_layout(height=400)
     return fig
+
 
 def build_replicate_correlation_plot(
     df: pd.DataFrame,
@@ -148,7 +150,6 @@ def build_replicate_correlation_plot(
         title=f"Replicate Correlation: {x_column} vs {y_column} (r = {correlation:.3f})",
     )
 
-    # Manual linear trendline (avoids the statsmodels dependency)
     slope, intercept = np.polyfit(df[x_column], df[y_column], deg=1)
     x_range = np.array([df[x_column].min(), df[x_column].max()])
     y_range = slope * x_range + intercept
@@ -177,6 +178,7 @@ def figure_to_png_bytes(fig: go.Figure) -> bytes:
     """
     return fig.to_image(format="png", scale=2)
 
+
 def build_html_report(figures: dict[str, go.Figure], title: str = "MAGeCK Dashboard Report") -> str:
     """Combine multiple Plotly figures into a single standalone HTML report.
 
@@ -193,7 +195,6 @@ def build_html_report(figures: dict[str, go.Figure], title: str = "MAGeCK Dashbo
     for i, (section_title, fig) in enumerate(figures.items()):
         if fig is None:
             continue
-        # Only embed the Plotly JS library once, in the first chart
         include_js = "cdn" if i == 0 else False
         chart_html = fig.to_html(full_html=False, include_plotlyjs=include_js)
         sections.append(f"<h2>{section_title}</h2>\n{chart_html}")
@@ -216,6 +217,7 @@ def build_html_report(figures: dict[str, go.Figure], title: str = "MAGeCK Dashbo
 {body}
 </body>
 </html>"""
+
 
 def compare_gene_summaries(
     df1: pd.DataFrame,
@@ -296,6 +298,7 @@ def build_screen_comparison_plot(
     fig.update_layout(height=600)
     return fig
 
+
 def build_zerocounts_plot(df: pd.DataFrame) -> go.Figure:
     """Build a bar chart of sgRNAs with zero reads per sample (log10 scale).
 
@@ -317,6 +320,7 @@ def build_zerocounts_plot(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(height=400, showlegend=False)
     return fig
+
 
 def build_correlation_heatmap(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
     """Build a clustered-look correlation heatmap across multiple samples.
@@ -353,16 +357,13 @@ def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    # Samples as rows, sgRNAs as features: transpose the count matrix
     data = df[sample_columns].T.to_numpy()
 
-    # Standardize each sgRNA (column) to mean 0 / std 1 before PCA
     data_centered = data - data.mean(axis=0)
     stds = data.std(axis=0)
-    stds[stds == 0] = 1  # avoid division by zero for constant sgRNAs
+    stds[stds == 0] = 1
     data_scaled = data_centered / stds
 
-    # PCA via SVD (no extra dependency needed beyond numpy)
     u, s, vt = np.linalg.svd(data_scaled, full_matrices=False)
     scores = u * s
     explained_variance = (s**2) / np.sum(s**2)
@@ -389,6 +390,7 @@ def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
     fig.update_traces(textposition="top center", marker=dict(size=12))
     fig.update_layout(height=500)
     return fig
+
 
 def build_beta_score_plot(
     df: pd.DataFrame,
@@ -426,4 +428,48 @@ def build_beta_score_plot(
     )
     fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
     fig.update_layout(height=600)
+    return fig
+
+
+def build_gc_content_plot(gc_df: pd.DataFrame, sample_name: str = "Sample") -> go.Figure:
+    """Build a density plot of per-read GC content.
+
+    Args:
+        gc_df: DataFrame produced by app.fastq_qc.compute_gc_distribution.
+        sample_name: label used in the plot title.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    fig = px.histogram(
+        gc_df,
+        x="gc_percent",
+        histnorm="probability density",
+        nbins=50,
+        labels={"gc_percent": "mean % GC content"},
+        title=f"GC Content Distribution ({sample_name})",
+    )
+    fig.update_traces(marker_line_width=0)
+    fig.update_layout(height=400, showlegend=False)
+    return fig
+
+
+def build_quality_profile_plot(quality_df: pd.DataFrame, sample_name: str = "Sample") -> go.Figure:
+    """Build a line plot of median base quality by read position.
+
+    Args:
+        quality_df: DataFrame produced by app.fastq_qc.compute_quality_profile.
+        sample_name: label used in the plot title.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    fig = px.line(
+        quality_df,
+        x="position",
+        y="median_quality",
+        labels={"position": "base position", "median_quality": "median quality"},
+        title=f"Base Quality Distribution ({sample_name})",
+    )
+    fig.update_layout(height=400, showlegend=False, yaxis_range=[0, 45])
     return fig
