@@ -64,6 +64,7 @@ def load_sgrna_summary(path: str | Path) -> pd.DataFrame:
 
     return df
 
+
 def load_countsummary(path: str | Path) -> pd.DataFrame:
     """Load and clean a MAGeCK countsummary.txt file.
 
@@ -84,6 +85,7 @@ def load_countsummary(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"countsummary file is missing expected columns: {missing}")
 
     return df
+
 
 def load_mle_gene_summary(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
     """Load and clean a MAGeCK MLE gene_summary.txt file.
