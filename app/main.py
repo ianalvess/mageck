@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 
-from parser import load_gene_summary, load_sgrna_summary, load_countsummary, load_mle_gene_summary
+from parser import load_gene_summary, load_countsummary, load_mle_gene_summary
 
 from plots import (
     build_volcano_plot,
@@ -206,14 +206,14 @@ if section == "Pipeline":
         else:
             count_source = st.radio(
                 "Count table source",
-                ["Use last pipeline run", "Select from data/input"],
+                ["Use last count run", "Select from data/input"],
                 key="mle_count_source",
                 horizontal=True,
             )
 
             if count_source == "Use last count run":
                 if "pipeline_count_table" not in st.session_state:
-                    st.warning("No pipeline run yet.")
+                    st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
                     mle_count_path = None
                 else:
                     mle_count_path = st.session_state["pipeline_count_table"]
@@ -312,16 +312,22 @@ elif section == "Quality Control":
     sub_mapping, sub_qc, sub_overview = st.tabs(["Mapping QC", "QC Report", "Sample Overview"])
 
     with sub_mapping:
+        st.write(
+            "Shows the read mapping rate and the number of sgRNAs with zero reads per sample, "
+            "computed by `mageck count`. A low mapping rate or a high number of zero-count sgRNAs "
+            "for a sample usually points to a sequencing, PCR, or library preparation problem."
+        )
+
         source = st.radio(
             "Data source",
-            ["Upload file", "Use last pipeline run"],
+            ["Upload file", "Use last count run"],
             key="mapping_source",
             horizontal=True,
         )
 
-        if source == "Use last pipeline run":
+        if source == "Use last count run":
             if "pipeline_countsummary" not in st.session_state:
-                st.warning("No pipeline run yet. Run the pipeline in Pipeline > Run Pipeline first, or switch to 'Upload file'.")
+                st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
                 count_df = None
             else:
                 count_df = load_countsummary(st.session_state["pipeline_countsummary"])
@@ -361,32 +367,41 @@ elif section == "Quality Control":
             st.info("Upload a MAGeCK countsummary.txt file to get started.")
 
     with sub_qc:
+        st.write(
+            "Computes the Gini index and read-count distribution for one individual sample at a "
+            "time, from the raw per-sgRNA count table. A high Gini index (uneven read distribution) "
+            "or a distribution with many low-count sgRNAs can signal library or sequencing problems "
+            "for that specific sample."
+        )
+
         source = st.radio(
             "Data source",
-            ["Upload file", "Use last pipeline run"],
+            ["Upload file", "Use last count run"],
             key="qc_source",
             horizontal=True,
         )
 
-        if source == "Use last pipeline run":
-            if "pipeline_sgrna_summary" not in st.session_state:
-                st.warning("No pipeline run yet. Run the pipeline in Pipeline > Run Pipeline first, or switch to 'Upload file'.")
-                sgrna_df = None
+        if source == "Use last count run":
+            if "pipeline_count_table" not in st.session_state:
+                st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+                counts_qc_df = None
             else:
-                sgrna_df = load_sgrna_summary(st.session_state["pipeline_sgrna_summary"])
-                st.caption(f"Using: {st.session_state['pipeline_sgrna_summary']}")
+                counts_qc_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
+                st.caption(f"Using: {st.session_state['pipeline_count_table']}")
         else:
-            uploaded_sgrna_file = st.file_uploader("Upload sgrna_summary.txt", type=["txt", "tsv"], key="sgrna_summary")
-            sgrna_df = load_sgrna_summary(uploaded_sgrna_file) if uploaded_sgrna_file is not None else None
+            uploaded_counts_qc_file = st.file_uploader(
+                "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="qc_counts"
+            )
+            counts_qc_df = pd.read_csv(uploaded_counts_qc_file, sep="\t") if uploaded_counts_qc_file is not None else None
 
-        if sgrna_df is not None:
-            numeric_columns = sgrna_df.select_dtypes(include="number").columns.tolist()
-            count_column = st.selectbox("Column to use as read count", numeric_columns)
+        if counts_qc_df is not None:
+            numeric_columns = counts_qc_df.select_dtypes(include="number").columns.tolist()
+            count_column = st.selectbox("Sample", numeric_columns)
 
-            gini = compute_gini_index(sgrna_df[count_column])
+            gini = compute_gini_index(counts_qc_df[count_column])
             st.metric("Gini index", f"{gini:.3f}")
 
-            qc_fig = build_read_distribution_plot(sgrna_df, count_column)
+            qc_fig = build_read_distribution_plot(counts_qc_df, count_column)
             st.session_state["fig_qc"] = qc_fig
             st.plotly_chart(qc_fig, use_container_width=True)
             st.download_button(
@@ -396,10 +411,10 @@ elif section == "Quality Control":
                 mime="image/png",
             )
 
-            st.subheader("sgRNA summary table")
-            st.dataframe(sgrna_df, use_container_width=True)
+            st.subheader("Count table")
+            st.dataframe(counts_qc_df, use_container_width=True)
         elif source == "Upload file":
-            st.info("Upload a MAGeCK sgrna_summary.txt file to get started.")
+            st.info("Upload a per-sample sgRNA count table to see the read distribution and Gini index.")
 
     with sub_overview:
         st.write("Upload a per-sample count table to see how all samples relate to each other.")
@@ -458,9 +473,9 @@ elif section == "Results":
             horizontal=True,
         )
 
-        if source == "Use last pipeline run":
+        if source == "Use last test run":
             if "pipeline_gene_summary" not in st.session_state:
-                st.warning("No pipeline run yet. Run the pipeline in Pipeline > Run Pipeline first, or switch to 'Upload file'.")
+                st.warning("No test run yet. Run test in Pipeline > Run test first, or switch to 'Upload file'.")
                 gene_df = None
             else:
                 gene_df = load_gene_summary(st.session_state["pipeline_gene_summary"])
@@ -551,7 +566,7 @@ elif section == "Comparisons":
 
         if source == "Use last pipeline run":
             if "pipeline_count_table" not in st.session_state:
-                st.warning("No pipeline run yet. Run the pipeline in Pipeline > Run Pipeline first, or switch to 'Upload file'.")
+                st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
                 counts_df = None
             else:
                 counts_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
