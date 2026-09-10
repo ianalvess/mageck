@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && plotly_get_chrome -y
 
 COPY app/ ./app/
+COPY .streamlit/ ./.streamlit/
 
 EXPOSE 8501
 
