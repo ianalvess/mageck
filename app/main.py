@@ -11,7 +11,6 @@ from plots import (
     build_mapping_summary_plot,
     build_replicate_correlation_plot,
     figure_to_png_bytes,
-    build_html_report,
     compare_gene_summaries,
     build_screen_comparison_plot,
     build_zerocounts_plot,
@@ -32,8 +31,16 @@ DATA_INPUT_DIR = Path("data/input")
 
 
 def list_available_files():
-    """List all files under data/input, as paths relative to that folder."""
-    return sorted(str(p.relative_to(DATA_INPUT_DIR)) for p in DATA_INPUT_DIR.rglob("*") if p.is_file())
+    """List all files under data/input, as paths relative to that folder.
+
+    Excludes hidden files (starting with a dot), such as .gitkeep,
+    which exist only to keep the folder tracked in git.
+    """
+    return sorted(
+        str(p.relative_to(DATA_INPUT_DIR))
+        for p in DATA_INPUT_DIR.rglob("*")
+        if p.is_file() and not p.name.startswith(".")
+    )
 
 
 section = st.sidebar.radio(
@@ -46,10 +53,15 @@ section = st.sidebar.radio(
 # ============================================================
 if section == "Pipeline":
     st.header("Pipeline")
-    sub_run, sub_mle, sub_fastqqc = st.tabs(["Run Pipeline", "Run MLE", "Raw FASTQ QC"])
+    sub_count, sub_test, sub_mle, sub_fastqqc = st.tabs(["Run Count", "Run Test", "Run MLE", "Raw FASTQ QC"])
 
-    with sub_run:
-        st.subheader("1. Select input files")
+    with sub_count:
+        st.write(
+            "`mageck count` aligns raw FASTQ reads to your sgRNA library and builds a table of read "
+            "counts per sgRNA per sample, along with per-sample QC metrics (mapping rate, Gini index, "
+            "zero-count sgRNAs). This is the first step of any screen analysis, required before "
+            "running Test or MLE."
+        )
         st.caption("Files must already be inside the data/input folder (mounted into the container).")
 
         available_files = list_available_files()
@@ -70,30 +82,13 @@ if section == "Pipeline":
                 fastq_choices.append(fastq_choice)
                 sample_labels.append(label)
 
-            st.subheader("2. Define groups")
-            control_labels = st.multiselect("Control sample labels", options=sample_labels)
-            treatment_labels = st.multiselect("Treatment sample labels", options=sample_labels)
+            count_output_prefix = st.text_input("Output prefix", value="mageck_run", key="count_output_prefix")
 
-            overlap = set(control_labels) & set(treatment_labels)
+            ready_to_run_count = bool(fastq_choices) and bool(library_choice) and count_output_prefix.strip() != ""
 
-            st.subheader("3. Run")
-            output_prefix = st.text_input("Output prefix", value="mageck_run")
-
-            ready_to_run = (
-                len(control_labels) > 0
-                and len(treatment_labels) > 0
-                and not overlap
-                and output_prefix.strip() != ""
-            )
-
-            if overlap:
-                st.error(f"These labels appear in both groups: {', '.join(overlap)}. A sample can't be both control and treatment.")
-            elif not ready_to_run:
-                st.info("Select the library file, all FASTQ files, and assign at least one control and one treatment label to continue.")
-
-            if st.button("Run MAGeCK pipeline", disabled=not ready_to_run):
-                work_dir = Path("data/pipeline_runs") / output_prefix
-                work_dir.mkdir(parents=True, exist_ok=True)
+            if st.button("Run mageck count", disabled=not ready_to_run_count):
+                count_work_dir = Path("data/pipeline_runs") / count_output_prefix
+                count_work_dir.mkdir(parents=True, exist_ok=True)
 
                 fastq_paths = [DATA_INPUT_DIR / f for f in fastq_choices]
                 library_path = DATA_INPUT_DIR / library_choice
@@ -103,45 +98,111 @@ if section == "Pipeline":
                         fastq_paths=fastq_paths,
                         sample_labels=sample_labels,
                         library_path=library_path,
-                        output_dir=work_dir,
-                        output_prefix=output_prefix,
+                        output_dir=count_work_dir,
+                        output_prefix=count_output_prefix,
                     )
 
                 if not count_result.success:
                     st.error("mageck count failed. See log below.")
                     st.code(count_result.stderr or count_result.stdout)
                 else:
-                    st.success("mageck count completed.")
+                    st.session_state["pipeline_count_table"] = count_work_dir / f"{count_output_prefix}.count.txt"
+                    st.session_state["pipeline_countsummary"] = count_work_dir / f"{count_output_prefix}.countsummary.txt"
+                    st.session_state["last_count_labels"] = sample_labels
+
+                    st.success("mageck count completed! Count table is ready for Run Test, Run MLE, or Comparisons.")
                     with st.expander("mageck count log"):
                         st.code(count_result.stdout + count_result.stderr)
+    with sub_test:
+        st.write(
+            "`mageck test` uses the RRA algorithm to compare a treatment group against a control "
+            "group, ranking genes by consistent depletion or enrichment of their sgRNAs. It produces "
+            "the gene- and sgRNA-level significance results used in the Volcano Plot. Best for a "
+            "simple two-group comparison (one control vs. one treatment condition)."
+        )
+        available_files_test = list_available_files()
 
-                    with st.spinner("Running mageck test..."):
-                        test_result = run_mageck_test(
-                            count_table_path=work_dir / f"{output_prefix}.count.txt",
-                            treatment_labels=treatment_labels,
-                            control_labels=control_labels,
-                            output_dir=work_dir,
-                            output_prefix=f"{output_prefix}_test",
-                        )
+        test_count_source = st.radio(
+            "Count table source",
+            ["Use last count run", "Select from data/input"],
+            key="test_count_source",
+            horizontal=True,
+        )
 
-                    if not test_result.success:
-                        st.error("mageck test failed. See log below.")
-                        st.code(test_result.stderr or test_result.stdout)
-                    else:
-                        st.session_state["pipeline_gene_summary"] = work_dir / f"{output_prefix}_test.gene_summary.txt"
-                        st.session_state["pipeline_sgrna_summary"] = work_dir / f"{output_prefix}_test.sgrna_summary.txt"
-                        st.session_state["pipeline_countsummary"] = work_dir / f"{output_prefix}.countsummary.txt"
-                        st.session_state["pipeline_count_table"] = work_dir / f"{output_prefix}.count.txt"
+        if test_count_source == "Use last count run":
+            if "pipeline_count_table" not in st.session_state:
+                st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+                test_count_path = None
+            else:
+                test_count_path = st.session_state["pipeline_count_table"]
+                st.caption(f"Using: {test_count_path}")
+        else:
+            test_count_choice = st.selectbox("Count table file", available_files_test, key="test_count_choice")
+            test_count_path = DATA_INPUT_DIR / test_count_choice if test_count_choice else None
 
-                        st.success("mageck test completed! Results saved to: " + str(work_dir))
-                        with st.expander("mageck test log"):
-                            st.code(test_result.stdout + test_result.stderr)
+        available_labels = st.session_state.get("last_count_labels", [])
+        if available_labels:
+            control_labels = st.multiselect("Control sample labels", options=available_labels, key="test_control_labels")
+            treatment_labels = st.multiselect("Treatment sample labels", options=available_labels, key="test_treatment_labels")
+        else:
+            st.info("Sample labels for this count table are unknown here. Enter them manually, comma-separated.")
+            control_text = st.text_input("Control sample labels (comma-separated)", key="test_control_text")
+            treatment_text = st.text_input("Treatment sample labels (comma-separated)", key="test_treatment_text")
+            control_labels = [s.strip() for s in control_text.split(",") if s.strip()]
+            treatment_labels = [s.strip() for s in treatment_text.split(",") if s.strip()]
 
+        overlap = set(control_labels) & set(treatment_labels)
+        test_output_prefix = st.text_input("Output prefix", value="mageck_test", key="test_output_prefix")
+
+        ready_to_run_test = (
+            test_count_path is not None
+            and len(control_labels) > 0
+            and len(treatment_labels) > 0
+            and not overlap
+            and test_output_prefix.strip() != ""
+        )
+
+        if overlap:
+            st.error(f"These labels appear in both groups: {', '.join(overlap)}. A sample can't be both control and treatment.")
+        elif not ready_to_run_test:
+            st.info("Provide a count table and assign at least one control and one treatment label to continue.")
+
+        if st.button("Run mageck test", disabled=not ready_to_run_test):
+            test_work_dir = Path("data/pipeline_runs") / test_output_prefix
+            test_work_dir.mkdir(parents=True, exist_ok=True)
+
+            with st.spinner("Running mageck test..."):
+                test_result = run_mageck_test(
+                    count_table_path=test_count_path,
+                    treatment_labels=treatment_labels,
+                    control_labels=control_labels,
+                    output_dir=test_work_dir,
+                    output_prefix=test_output_prefix,
+                )
+
+            if not test_result.success:
+                st.error("mageck test failed. See log below.")
+                st.code(test_result.stderr or test_result.stdout)
+            else:
+                st.session_state["pipeline_gene_summary"] = test_work_dir / f"{test_output_prefix}.gene_summary.txt"
+                st.session_state["pipeline_sgrna_summary"] = test_work_dir / f"{test_output_prefix}.sgrna_summary.txt"
+
+                st.success("mageck test completed! Results ready in Results > Volcano Plot.")
+                with st.expander("mageck test log"):
+                    st.code(test_result.stdout + test_result.stderr)
     with sub_mle:
+        st.write(
+            "`mageck mle` fits a statistical model across all samples at once, using a design matrix "
+            "to describe your experimental conditions. It estimates a beta score per gene per "
+            "condition, similar in spirit to the LFC from `mageck test`. Use this instead of "
+            "`mageck test` when you have more than two groups, multiple treatments, or covariates "
+            "you want to control for."
+        )
+
         available_files_mle = list_available_files()
 
         if "pipeline_count_table" not in st.session_state and not available_files_mle:
-            st.warning("No count table available. Run 'mageck count' in the Run Pipeline tab first, or add files to data/input.")
+            st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
         else:
             count_source = st.radio(
                 "Count table source",
@@ -150,7 +211,7 @@ if section == "Pipeline":
                 horizontal=True,
             )
 
-            if count_source == "Use last pipeline run":
+            if count_source == "Use last count run":
                 if "pipeline_count_table" not in st.session_state:
                     st.warning("No pipeline run yet.")
                     mle_count_path = None
@@ -189,8 +250,12 @@ if section == "Pipeline":
                         st.code(mle_result.stdout + mle_result.stderr)
 
     with sub_fastqqc:
-        st.write("Compute GC content and base quality distribution directly from a raw FASTQ file.")
-        st.caption("This reads the entire file, so it may take a few minutes for large FASTQ files.")
+        st.write(
+            "Computes two standard sequencing QC metrics directly from a raw FASTQ file: the GC "
+            "content distribution across reads, and the median base quality by position along the "
+            "read. Use this to catch sequencing problems (e.g. low quality, unexpected GC skew) "
+            "before running the rest of the pipeline."
+        )
 
         available_files_qc = list_available_files()
 
@@ -559,37 +624,3 @@ elif section == "Comparisons":
             st.dataframe(merged, use_container_width=True)
         else:
             st.info("Upload both gene_summary.txt files to compare.")
-
-# ============================================================
-# Full report (always visible, in the sidebar, regardless of section)
-# ============================================================
-st.sidebar.divider()
-st.sidebar.subheader("Full report")
-
-available_figures = {
-    "GC Content": st.session_state.get("fig_fastq_gc"),
-    "Base Quality": st.session_state.get("fig_fastq_quality"),
-    "Mapping QC": st.session_state.get("fig_mapping"),
-    "Zero-count plot": st.session_state.get("fig_zerocounts"),
-    "QC Report": st.session_state.get("fig_qc"),
-    "Sample Correlation Heatmap": st.session_state.get("fig_overview_heatmap"),
-    "Sample PCA": st.session_state.get("fig_overview_pca"),
-    "Volcano Plot": st.session_state.get("fig_volcano"),
-    "MLE Beta Score Plot": st.session_state.get("fig_mle"),
-    "Replicate Correlation": st.session_state.get("fig_replicate"),
-    "Screen Comparison": st.session_state.get("fig_comparison"),
-}
-
-num_available = sum(fig is not None for fig in available_figures.values())
-
-if num_available == 0:
-    st.sidebar.info("Load data in a section to enable the full report.")
-else:
-    st.sidebar.write(f"{num_available} chart(s) ready.")
-    report_html = build_html_report(available_figures)
-    st.sidebar.download_button(
-        "Download full HTML report",
-        data=report_html,
-        file_name="mageck_report.html",
-        mime="text/html",
-    )
