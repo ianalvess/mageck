@@ -352,44 +352,78 @@ def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
     return fig
 
 
-def build_beta_score_plot(
+def build_beta_comparison_plot(
     df: pd.DataFrame,
-    condition: str,
+    condition_x: str,
+    condition_y: str,
     fdr_threshold: float = 0.05,
+    top_n: int = 10,
 ) -> go.Figure:
-    """Build a volcano-style plot of MAGeCK MLE beta scores for one condition.
+    """Compare MLE beta scores between two conditions, gene by gene.
 
     Args:
         df: DataFrame produced by app.parser.load_mle_gene_summary.
-        condition: name of the condition to plot (e.g. "PLX").
-        fdr_threshold: FDR cutoff used to color genes as significant.
+        condition_x: condition plotted on the x-axis (e.g. "Control").
+        condition_y: condition plotted on the y-axis (e.g. "PLX").
+        fdr_threshold: FDR cutoff used to flag genes as significant.
+        top_n: number of genes (lowest combined FDR) to label on the plot.
 
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    beta_col = f"{condition}|beta"
-    fdr_col = f"{condition}|fdr"
+    beta_x, fdr_x = f"{condition_x}|beta", f"{condition_x}|fdr"
+    beta_y, fdr_y = f"{condition_y}|beta", f"{condition_y}|fdr"
 
     plot_df = df.copy()
-    plot_df["neg_log10_fdr"] = -np.log10(plot_df[fdr_col].clip(lower=1e-300))
-    is_significant = plot_df[fdr_col] < fdr_threshold
-    plot_df["significance"] = is_significant.map({True: "Significant", False: "Not significant"})
+    sig_x = plot_df[fdr_x] < fdr_threshold
+    sig_y = plot_df[fdr_y] < fdr_threshold
+
+    conditions = [sig_x & sig_y, sig_x & ~sig_y, ~sig_x & sig_y]
+    choices = ["Both", f"{condition_x} only", f"{condition_y} only"]
+    plot_df["significance"] = np.select(conditions, choices, default="Neither")
 
     fig = px.scatter(
         plot_df,
-        x=beta_col,
-        y="neg_log10_fdr",
+        x=beta_x,
+        y=beta_y,
         color="significance",
-        color_discrete_map={"Significant": "#d62728", "Not significant": "#7f7f7f"},
+        color_discrete_map={
+            "Both": "#d62728",
+            f"{condition_x} only": "#1f77b4",
+            f"{condition_y} only": "#ff7f0e",
+            "Neither": "#7f7f7f",
+        },
         hover_name="Gene",
-        hover_data={fdr_col: ":.2e"},
-        labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": "-log10(FDR)"},
-        title=f"MLE Beta Score Plot: {condition}",
+        labels={beta_x: f"Beta score ({condition_x})", beta_y: f"Beta score ({condition_y})"},
+        title=f"MLE Beta Score Comparison: {condition_x} vs {condition_y}",
     )
-    fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
+
+    axis_min = min(plot_df[beta_x].min(), plot_df[beta_y].min())
+    axis_max = max(plot_df[beta_x].max(), plot_df[beta_y].max())
+    fig.add_shape(
+        type="line",
+        x0=axis_min,
+        y0=axis_min,
+        x1=axis_max,
+        y1=axis_max,
+        line=dict(color="gray", dash="dash"),
+    )
+
+    plot_df["combined_fdr"] = plot_df[[fdr_x, fdr_y]].min(axis=1)
+    top_genes = plot_df.nsmallest(top_n, "combined_fdr")
+    fig.add_trace(
+        go.Scatter(
+            x=top_genes[beta_x],
+            y=top_genes[beta_y],
+            mode="text",
+            text=top_genes["Gene"],
+            textposition="top center",
+            showlegend=False,
+        )
+    )
+
     fig.update_layout(height=600)
     return fig
-
 
 def build_gc_content_plot(gc_df: pd.DataFrame, sample_name: str = "Sample") -> go.Figure:
     """Build a density plot of per-read GC content.
