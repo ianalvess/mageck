@@ -15,8 +15,8 @@ from plots import (
     build_screen_comparison_plot,
     build_zerocounts_plot,
     build_correlation_heatmap,
+    build_beta_comparison_plot,
     build_pca_plot,
-    build_beta_score_plot,
     build_gc_content_plot,
     build_quality_profile_plot,
 )
@@ -463,7 +463,7 @@ elif section == "Quality Control":
 # ============================================================
 elif section == "Results":
     st.header("Results")
-    sub_volcano, sub_mle_results = st.tabs(["Volcano Plot", "MLE Results"])
+    sub_volcano, sub_mle_results = st.tabs(["Test Results", "MLE Results"])
 
     with sub_volcano:
         source = st.radio(
@@ -529,26 +529,37 @@ elif section == "Results":
                 mle_df, mle_conditions = None, []
 
         if mle_df is not None:
-            selected_condition = st.selectbox("Condition", mle_conditions)
-            mle_fdr_threshold = st.number_input(
-                "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
-            )
+            if len(mle_conditions) < 2:
+                st.warning("This MLE result has only one condition. At least two are needed to compare beta scores.")
+            else:
+                col1, col2 = st.columns(2)
+                condition_x = col1.selectbox("X axis condition", mle_conditions, index=0)
+                condition_y = col2.selectbox(
+                    "Y axis condition", mle_conditions, index=min(1, len(mle_conditions) - 1)
+                )
+                mle_fdr_threshold = st.number_input(
+                    "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
+                )
 
-            mle_fig = build_beta_score_plot(mle_df, condition=selected_condition, fdr_threshold=mle_fdr_threshold)
-            st.session_state["fig_mle"] = mle_fig
-            st.plotly_chart(mle_fig, use_container_width=True)
-            st.download_button(
-                "Download beta score plot (PNG)",
-                data=figure_to_png_bytes(mle_fig),
-                file_name=f"beta_score_{selected_condition}.png",
-                mime="image/png",
-            )
+                if condition_x == condition_y:
+                    st.warning("Select two different conditions to compare.")
+                else:
+                    mle_fig = build_beta_comparison_plot(
+                        mle_df, condition_x=condition_x, condition_y=condition_y, fdr_threshold=mle_fdr_threshold
+                    )
+                    st.session_state["fig_mle"] = mle_fig
+                    st.plotly_chart(mle_fig, use_container_width=True)
+                    st.download_button(
+                        "Download beta comparison plot (PNG)",
+                        data=figure_to_png_bytes(mle_fig),
+                        file_name=f"beta_comparison_{condition_x}_vs_{condition_y}.png",
+                        mime="image/png",
+                    )
 
             st.subheader("MLE gene summary table")
             st.dataframe(mle_df, use_container_width=True)
         elif mle_source == "Upload file":
             st.info("Upload a MAGeCK MLE gene_summary.txt file to get started.")
-
 # ============================================================
 # SECTION: Comparisons
 # ============================================================
