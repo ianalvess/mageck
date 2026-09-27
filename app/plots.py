@@ -45,7 +45,7 @@ def build_volcano_plot(
         color_discrete_map={"Significant": "#d62728", "Not significant": "#7f7f7f"},
         hover_name="id",
         hover_data={"best_fdr": ":.2e", "direction": True, "best_lfc": ":.2f"},
-        labels={"best_lfc": "Log Fold Change", "neg_log10_fdr": "-log10(FDR)"},
+        labels={"best_lfc": "Log2 Fold Change (LFC)", "neg_log10_fdr": "-log10(FDR)"},
         title="Volcano Plot",
     )
 
