@@ -126,6 +126,8 @@ def build_replicate_correlation_plot(
     df: pd.DataFrame,
     x_column: str,
     y_column: str,
+    log_transform: bool = True,
+    method: str = "pearson",
 ) -> go.Figure:
     """Build a scatter plot comparing read counts between two replicate samples.
 
@@ -134,24 +136,46 @@ def build_replicate_correlation_plot(
             count table with one column per sample).
         x_column: name of the column for the first replicate.
         y_column: name of the column for the second replicate.
+        log_transform: if True (default), apply log2(count + 1) to both
+            columns before plotting and computing correlation. This is
+            standard practice for count data, which is heavily
+            right-skewed and would otherwise be dominated by a few
+            highly abundant sgRNAs.
+        method: "pearson" or "spearman".
 
     Returns:
-        A Plotly Figure ready to be rendered, including the Pearson
-        correlation coefficient in the title.
+        A Plotly Figure ready to be rendered, including the correlation
+        coefficient in the title.
     """
-    correlation = df[x_column].corr(df[y_column])
+    plot_df = df.copy()
+    x_values, y_values = plot_df[x_column], plot_df[y_column]
+
+    if log_transform:
+        x_values = np.log2(x_values + 1)
+        y_values = np.log2(y_values + 1)
+        plot_df["_x"] = x_values
+        plot_df["_y"] = y_values
+        x_label, y_label = f"log2({x_column} + 1)", f"log2({y_column} + 1)"
+        x_col, y_col = "_x", "_y"
+    else:
+        x_label, y_label = x_column, y_column
+        x_col, y_col = x_column, y_column
+
+    correlation = x_values.corr(y_values, method=method)
+    method_label = "Pearson r" if method == "pearson" else "Spearman rho"
 
     fig = px.scatter(
-        df,
-        x=x_column,
-        y=y_column,
+        plot_df,
+        x=x_col,
+        y=y_col,
         hover_name="sgrna" if "sgrna" in df.columns else None,
-        labels={x_column: x_column, y_column: y_column},
-        title=f"Replicate Correlation: {x_column} vs {y_column} (r = {correlation:.3f})",
+        labels={x_col: x_label, y_col: y_label},
+        title=f"Replicate Correlation: {x_column} vs {y_column} ({method_label} = {correlation:.3f})",
     )
 
-    slope, intercept = np.polyfit(df[x_column], df[y_column], deg=1)
-    x_range = np.array([df[x_column].min(), df[x_column].max()])
+    # Manual linear trendline (avoids the statsmodels dependency)
+    slope, intercept = np.polyfit(x_values, y_values, deg=1)
+    x_range = np.array([x_values.min(), x_values.max()])
     y_range = slope * x_range + intercept
     fig.add_trace(
         go.Scatter(
@@ -165,7 +189,6 @@ def build_replicate_correlation_plot(
 
     fig.update_layout(height=500)
     return fig
-
 
 def figure_to_png_bytes(fig: go.Figure) -> bytes:
     """Convert a Plotly figure to PNG bytes, for use with st.download_button.
@@ -282,17 +305,28 @@ def build_zerocounts_plot(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def build_correlation_heatmap(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
+def build_correlation_heatmap(
+    df: pd.DataFrame,
+    sample_columns: list[str],
+    log_transform: bool = True,
+) -> go.Figure:
     """Build a clustered-look correlation heatmap across multiple samples.
 
     Args:
         df: DataFrame with one row per sgRNA and one column per sample.
         sample_columns: names of the numeric columns to correlate.
+        log_transform: if True (default), apply log2(count + 1) to each
+            column before computing correlations. See
+            build_replicate_correlation_plot for rationale.
 
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    corr_matrix = df[sample_columns].corr()
+    values = df[sample_columns]
+    if log_transform:
+        values = np.log2(values + 1)
+
+    corr_matrix = values.corr()
 
     fig = px.imshow(
         corr_matrix,
@@ -301,23 +335,34 @@ def build_correlation_heatmap(df: pd.DataFrame, sample_columns: list[str]) -> go
         zmin=-1,
         zmax=1,
         labels=dict(color="Pearson r"),
-        title="Sample Correlation Heatmap",
+        title="Sample Correlation Heatmap" + (" (log2 counts)" if log_transform else " (raw counts)"),
     )
     fig.update_layout(height=500)
     return fig
 
-
-def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
+def build_pca_plot(
+    df: pd.DataFrame,
+    sample_columns: list[str],
+    log_transform: bool = True,
+) -> go.Figure:
     """Build a 2D PCA scatter plot of samples based on their sgRNA counts.
 
     Args:
         df: DataFrame with one row per sgRNA and one column per sample.
         sample_columns: names of the numeric columns to use as features.
+        log_transform: if True (default), apply log2(count + 1) before
+            PCA. See build_replicate_correlation_plot for rationale;
+            without this, PCA is dominated by a handful of very
+            highly abundant sgRNAs.
 
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    data = df[sample_columns].T.to_numpy()
+    values = df[sample_columns]
+    if log_transform:
+        values = np.log2(values + 1)
+
+    data = values.T.to_numpy()
 
     data_centered = data - data.mean(axis=0)
     stds = data.std(axis=0)
@@ -345,12 +390,11 @@ def build_pca_plot(df: pd.DataFrame, sample_columns: list[str]) -> go.Figure:
             "PC1": f"PC1 ({explained_variance[0]:.1%})",
             "PC2": f"PC2 ({explained_variance[1]:.1%})" if len(explained_variance) > 1 else "PC2",
         },
-        title="PCA of Samples",
+        title="PCA of Samples" + (" (log2 counts)" if log_transform else " (raw counts)"),
     )
     fig.update_traces(textposition="top center", marker=dict(size=12))
     fig.update_layout(height=500)
     return fig
-
 
 def build_beta_comparison_plot(
     df: pd.DataFrame,
