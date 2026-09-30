@@ -568,14 +568,21 @@ elif section == "Comparisons":
     sub_replicates, sub_screen_comparison = st.tabs(["Replicate Correlation", "Screen Comparison"])
 
     with sub_replicates:
+        st.write(
+            "Compares raw sgRNA read counts between two samples to check reproducibility. This is "
+            "a QC/reproducibility metric, not evidence on its own that the screen worked "
+            "biologically — low correlation between replicates of the same condition usually "
+            "signals a technical problem (pipetting, contamination, low coverage)."
+        )
+
         source = st.radio(
             "Data source",
-            ["Upload file", "Use last pipeline run"],
+            ["Upload file", "Use last count run"],
             key="replicates_source",
             horizontal=True,
         )
 
-        if source == "Use last pipeline run":
+        if source == "Use last count run":
             if "pipeline_count_table" not in st.session_state:
                 st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
                 counts_df = None
@@ -590,14 +597,50 @@ elif section == "Comparisons":
 
         if counts_df is not None:
             numeric_columns = counts_df.select_dtypes(include="number").columns.tolist()
+
+            group_text = st.text_input(
+                "Group each sample, comma-separated in the same order as the columns below "
+                f"({', '.join(numeric_columns)}). Leave blank to skip grouping.",
+                key="replicate_groups",
+            )
+            groups = [g.strip() for g in group_text.split(",")] if group_text.strip() else []
+
+            suggest_pairs = len(groups) == len(numeric_columns) and len(groups) > 0
+            if group_text.strip() and not suggest_pairs:
+                st.warning(f"Expected {len(numeric_columns)} group labels, got {len(groups)}. Ignoring grouping.")
+
+            if suggest_pairs:
+                column_to_group = dict(zip(numeric_columns, groups))
+                same_group_pairs = [
+                    (a, b)
+                    for i, a in enumerate(numeric_columns)
+                    for b in numeric_columns[i + 1 :]
+                    if column_to_group[a] == column_to_group[b]
+                ]
+                if same_group_pairs:
+                    pair_labels = [f"{a} vs {b}" for a, b in same_group_pairs]
+                    chosen_pair = st.selectbox("Suggested same-group pairs", pair_labels)
+                    x_column, y_column = same_group_pairs[pair_labels.index(chosen_pair)]
+                else:
+                    st.info("No two samples share the same group label; falling back to manual selection.")
+                    col1, col2 = st.columns(2)
+                    x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
+                    y_column = col2.selectbox("Replicate 2", numeric_columns, index=min(1, len(numeric_columns) - 1))
+            else:
+                col1, col2 = st.columns(2)
+                x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
+                y_column = col2.selectbox("Replicate 2", numeric_columns, index=min(1, len(numeric_columns) - 1))
+
             col1, col2 = st.columns(2)
-            x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
-            y_column = col2.selectbox("Replicate 2", numeric_columns, index=min(1, len(numeric_columns) - 1))
+            log_transform = col1.checkbox("Apply log2(count + 1) transform", value=True)
+            method = col2.selectbox("Correlation method", ["pearson", "spearman"])
 
             if x_column == y_column:
                 st.warning("Select two different columns to compare.")
             else:
-                replicate_fig = build_replicate_correlation_plot(counts_df, x_column, y_column)
+                replicate_fig = build_replicate_correlation_plot(
+                    counts_df, x_column, y_column, log_transform=log_transform, method=method
+                )
                 st.session_state["fig_replicate"] = replicate_fig
                 st.plotly_chart(replicate_fig, use_container_width=True)
                 st.download_button(
@@ -611,42 +654,3 @@ elif section == "Comparisons":
             st.dataframe(counts_df, use_container_width=True)
         elif source == "Upload file":
             st.info("Upload a per-sample sgRNA count table to compare replicates.")
-
-    with sub_screen_comparison:
-        st.write("Upload two gene_summary.txt files from different screens to compare gene-level results.")
-
-        col1, col2 = st.columns(2)
-        file1 = col1.file_uploader("Screen 1: gene_summary.txt", type=["txt", "tsv"], key="screen1")
-        label1 = col1.text_input("Screen 1 label", value="Screen 1")
-        file2 = col2.file_uploader("Screen 2: gene_summary.txt", type=["txt", "tsv"], key="screen2")
-        label2 = col2.text_input("Screen 2 label", value="Screen 2")
-
-        if file1 is not None and file2 is not None:
-            comparison_df1 = load_gene_summary(file1)
-            comparison_df2 = load_gene_summary(file2)
-
-            fdr_threshold_comp = st.number_input(
-                "FDR threshold for significance", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="comp_fdr"
-            )
-
-            merged = compare_gene_summaries(
-                comparison_df1, comparison_df2, fdr_threshold=fdr_threshold_comp, label1=label1, label2=label2
-            )
-
-            st.subheader("Concordance summary")
-            st.write(merged["concordance"].value_counts())
-
-            comparison_fig = build_screen_comparison_plot(merged, label1=label1, label2=label2)
-            st.session_state["fig_comparison"] = comparison_fig
-            st.plotly_chart(comparison_fig, use_container_width=True)
-            st.download_button(
-                "Download comparison plot (PNG)",
-                data=figure_to_png_bytes(comparison_fig),
-                file_name="screen_comparison.png",
-                mime="image/png",
-            )
-
-            st.subheader("Merged gene table")
-            st.dataframe(merged, use_container_width=True)
-        else:
-            st.info("Upload both gene_summary.txt files to compare.")
