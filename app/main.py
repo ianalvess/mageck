@@ -416,8 +416,14 @@ elif section == "Quality Control":
         elif source == "Upload file":
             st.info("Upload a per-sample sgRNA count table to see the read distribution and Gini index.")
 
+
     with sub_overview:
-        st.write("Upload a per-sample count table to see how all samples relate to each other.")
+        st.write(
+            "Shows how all samples relate to each other at once: a correlation heatmap and a PCA "
+            "plot. Useful to spot batch effects or mislabeled samples — replicates of the same "
+            "condition should cluster together. Like the Replicate Correlation tab, this is a "
+            "QC/reproducibility check, not biological validation of the screen."
+        )
 
         uploaded_overview_file = st.file_uploader(
             "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="overview_counts"
@@ -430,12 +436,17 @@ elif section == "Quality Control":
             selected_samples = st.multiselect(
                 "Samples to include", numeric_columns, default=numeric_columns
             )
+            log_transform_overview = st.checkbox(
+                "Apply log2(count + 1) transform", value=True, key="overview_log_transform"
+            )
 
             if len(selected_samples) < 2:
                 st.warning("Select at least two samples to compare.")
             else:
                 st.subheader("Correlation heatmap")
-                overview_heatmap_fig = build_correlation_heatmap(overview_df, selected_samples)
+                overview_heatmap_fig = build_correlation_heatmap(
+                    overview_df, selected_samples, log_transform=log_transform_overview
+                )
                 st.session_state["fig_overview_heatmap"] = overview_heatmap_fig
                 st.plotly_chart(overview_heatmap_fig, use_container_width=True)
                 st.download_button(
@@ -446,7 +457,9 @@ elif section == "Quality Control":
                 )
 
                 st.subheader("PCA")
-                overview_pca_fig = build_pca_plot(overview_df, selected_samples)
+                overview_pca_fig = build_pca_plot(
+                    overview_df, selected_samples, log_transform=log_transform_overview
+                )
                 st.session_state["fig_overview_pca"] = overview_pca_fig
                 st.plotly_chart(overview_pca_fig, use_container_width=True)
                 st.download_button(
