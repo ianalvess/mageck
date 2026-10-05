@@ -127,7 +127,6 @@ def build_replicate_correlation_plot(
     x_column: str,
     y_column: str,
     log_transform: bool = True,
-    method: str = "pearson",
 ) -> go.Figure:
     """Build a scatter plot comparing read counts between two replicate samples.
 
@@ -141,11 +140,10 @@ def build_replicate_correlation_plot(
             standard practice for count data, which is heavily
             right-skewed and would otherwise be dominated by a few
             highly abundant sgRNAs.
-        method: "pearson" or "spearman".
 
     Returns:
-        A Plotly Figure ready to be rendered, including the correlation
-        coefficient in the title.
+        A Plotly Figure ready to be rendered, including the Pearson
+        correlation coefficient in the title.
     """
     plot_df = df.copy()
     x_values, y_values = plot_df[x_column], plot_df[y_column]
@@ -161,8 +159,7 @@ def build_replicate_correlation_plot(
         x_label, y_label = x_column, y_column
         x_col, y_col = x_column, y_column
 
-    correlation = x_values.corr(y_values, method=method)
-    method_label = "Pearson r" if method == "pearson" else "Spearman rho"
+    correlation = x_values.corr(y_values)
 
     fig = px.scatter(
         plot_df,
@@ -170,7 +167,7 @@ def build_replicate_correlation_plot(
         y=y_col,
         hover_name="sgrna" if "sgrna" in df.columns else None,
         labels={x_col: x_label, y_col: y_label},
-        title=f"Replicate Correlation: {x_column} vs {y_column} ({method_label} = {correlation:.3f})",
+        title=f"Replicate Correlation: {x_column} vs {y_column} (Pearson r = {correlation:.3f})",
     )
 
     # Manual linear trendline (avoids the statsmodels dependency)
@@ -189,6 +186,7 @@ def build_replicate_correlation_plot(
 
     fig.update_layout(height=500)
     return fig
+
 
 def figure_to_png_bytes(fig: go.Figure) -> bytes:
     """Convert a Plotly figure to PNG bytes, for use with st.download_button.
