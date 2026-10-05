@@ -15,8 +15,8 @@ from plots import (
     build_screen_comparison_plot,
     build_zerocounts_plot,
     build_correlation_heatmap,
-    build_beta_comparison_plot,
     build_pca_plot,
+    build_beta_comparison_plot,
     build_gc_content_plot,
     build_quality_profile_plot,
 )
@@ -113,13 +113,15 @@ if section == "Pipeline":
                     st.success("mageck count completed! Count table is ready for Run Test, Run MLE, or Comparisons.")
                     with st.expander("mageck count log"):
                         st.code(count_result.stdout + count_result.stderr)
+
     with sub_test:
         st.write(
             "`mageck test` uses the RRA algorithm to compare a treatment group against a control "
             "group, ranking genes by consistent depletion or enrichment of their sgRNAs. It produces "
-            "the gene- and sgRNA-level significance results used in the Volcano Plot. Best for a "
+            "the gene- and sgRNA-level significance results used in the Test Results plot. Best for a "
             "simple two-group comparison (one control vs. one treatment condition)."
         )
+
         available_files_test = list_available_files()
 
         test_count_source = st.radio(
@@ -187,9 +189,10 @@ if section == "Pipeline":
                 st.session_state["pipeline_gene_summary"] = test_work_dir / f"{test_output_prefix}.gene_summary.txt"
                 st.session_state["pipeline_sgrna_summary"] = test_work_dir / f"{test_output_prefix}.sgrna_summary.txt"
 
-                st.success("mageck test completed! Results ready in Results > Volcano Plot.")
+                st.success("mageck test completed! Results ready in Results > Test Results.")
                 with st.expander("mageck test log"):
                     st.code(test_result.stdout + test_result.stderr)
+
     with sub_mle:
         st.write(
             "`mageck mle` fits a statistical model across all samples at once, using a design matrix "
@@ -202,7 +205,7 @@ if section == "Pipeline":
         available_files_mle = list_available_files()
 
         if "pipeline_count_table" not in st.session_state and not available_files_mle:
-            st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+            st.warning("No count table available. Run 'mageck count' in the Run Count tab first, or add files to data/input.")
         else:
             count_source = st.radio(
                 "Count table source",
@@ -213,7 +216,7 @@ if section == "Pipeline":
 
             if count_source == "Use last count run":
                 if "pipeline_count_table" not in st.session_state:
-                    st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+                    st.warning("No count table yet.")
                     mle_count_path = None
                 else:
                     mle_count_path = st.session_state["pipeline_count_table"]
@@ -327,7 +330,7 @@ elif section == "Quality Control":
 
         if source == "Use last count run":
             if "pipeline_countsummary" not in st.session_state:
-                st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+                st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
                 count_df = None
             else:
                 count_df = load_countsummary(st.session_state["pipeline_countsummary"])
@@ -383,7 +386,7 @@ elif section == "Quality Control":
 
         if source == "Use last count run":
             if "pipeline_count_table" not in st.session_state:
-                st.warning("No count table yet. Run mageck count in the Run Count tab first, or switch to 'Select from data/input'.")
+                st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
                 counts_qc_df = None
             else:
                 counts_qc_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
@@ -415,7 +418,6 @@ elif section == "Quality Control":
             st.dataframe(counts_qc_df, use_container_width=True)
         elif source == "Upload file":
             st.info("Upload a per-sample sgRNA count table to see the read distribution and Gini index.")
-
 
     with sub_overview:
         st.write(
@@ -481,14 +483,14 @@ elif section == "Results":
     with sub_volcano:
         source = st.radio(
             "Data source",
-            ["Upload file", "Use last pipeline run"],
+            ["Upload file", "Use last test run"],
             key="volcano_source",
             horizontal=True,
         )
 
         if source == "Use last test run":
             if "pipeline_gene_summary" not in st.session_state:
-                st.warning("No test run yet. Run test in Pipeline > Run test first, or switch to 'Upload file'.")
+                st.warning("No test run yet. Run mageck test in Pipeline > Run Test first, or switch to 'Upload file'.")
                 gene_df = None
             else:
                 gene_df = load_gene_summary(st.session_state["pipeline_gene_summary"])
@@ -506,9 +508,9 @@ elif section == "Results":
             st.session_state["fig_volcano"] = volcano_fig
             st.plotly_chart(volcano_fig, use_container_width=True)
             st.download_button(
-                "Download volcano plot (PNG)",
+                "Download test results plot (PNG)",
                 data=figure_to_png_bytes(volcano_fig),
-                file_name="volcano_plot.png",
+                file_name="test_results_plot.png",
                 mime="image/png",
             )
 
@@ -573,6 +575,7 @@ elif section == "Results":
             st.dataframe(mle_df, use_container_width=True)
         elif mle_source == "Upload file":
             st.info("Upload a MAGeCK MLE gene_summary.txt file to get started.")
+
 # ============================================================
 # SECTION: Comparisons
 # ============================================================
@@ -644,15 +647,13 @@ elif section == "Comparisons":
                 x_column = col1.selectbox("Replicate 1", numeric_columns, index=0)
                 y_column = col2.selectbox("Replicate 2", numeric_columns, index=min(1, len(numeric_columns) - 1))
 
-            col1, col2 = st.columns(2)
-            log_transform = col1.checkbox("Apply log2(count + 1) transform", value=True)
-            method = col2.selectbox("Correlation method", ["pearson", "spearman"])
+            log_transform = st.checkbox("Apply log2(count + 1) transform", value=True)
 
             if x_column == y_column:
                 st.warning("Select two different columns to compare.")
             else:
                 replicate_fig = build_replicate_correlation_plot(
-                    counts_df, x_column, y_column, log_transform=log_transform, method=method
+                    counts_df, x_column, y_column, log_transform=log_transform
                 )
                 st.session_state["fig_replicate"] = replicate_fig
                 st.plotly_chart(replicate_fig, use_container_width=True)
@@ -667,3 +668,42 @@ elif section == "Comparisons":
             st.dataframe(counts_df, use_container_width=True)
         elif source == "Upload file":
             st.info("Upload a per-sample sgRNA count table to compare replicates.")
+
+    with sub_screen_comparison:
+        st.write("Upload two gene_summary.txt files from different screens to compare gene-level results.")
+
+        col1, col2 = st.columns(2)
+        file1 = col1.file_uploader("Screen 1: gene_summary.txt", type=["txt", "tsv"], key="screen1")
+        label1 = col1.text_input("Screen 1 label", value="Screen 1")
+        file2 = col2.file_uploader("Screen 2: gene_summary.txt", type=["txt", "tsv"], key="screen2")
+        label2 = col2.text_input("Screen 2 label", value="Screen 2")
+
+        if file1 is not None and file2 is not None:
+            comparison_df1 = load_gene_summary(file1)
+            comparison_df2 = load_gene_summary(file2)
+
+            fdr_threshold_comp = st.number_input(
+                "FDR threshold for significance", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="comp_fdr"
+            )
+
+            merged = compare_gene_summaries(
+                comparison_df1, comparison_df2, fdr_threshold=fdr_threshold_comp, label1=label1, label2=label2
+            )
+
+            st.subheader("Concordance summary")
+            st.write(merged["concordance"].value_counts())
+
+            comparison_fig = build_screen_comparison_plot(merged, label1=label1, label2=label2)
+            st.session_state["fig_comparison"] = comparison_fig
+            st.plotly_chart(comparison_fig, use_container_width=True)
+            st.download_button(
+                "Download comparison plot (PNG)",
+                data=figure_to_png_bytes(comparison_fig),
+                file_name="screen_comparison.png",
+                mime="image/png",
+            )
+
+            st.subheader("Merged gene table")
+            st.dataframe(merged, use_container_width=True)
+        else:
+            st.info("Upload both gene_summary.txt files to compare.")
