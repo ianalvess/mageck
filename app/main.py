@@ -17,6 +17,7 @@ from plots import (
     build_correlation_heatmap,
     build_pca_plot,
     build_beta_comparison_plot,
+    build_beta_score_plot,
     build_gc_content_plot,
     build_quality_profile_plot,
 )
@@ -48,9 +49,6 @@ section = st.sidebar.radio(
     ["Pipeline", "Quality Control", "Results", "Comparisons"],
 )
 
-# ============================================================
-# SECTION: Pipeline
-# ============================================================
 if section == "Pipeline":
     st.header("Pipeline")
     sub_count, sub_test, sub_mle, sub_fastqqc = st.tabs(["Run Count", "Run Test", "Run MLE", "Raw FASTQ QC"])
@@ -307,9 +305,6 @@ if section == "Pipeline":
                     mime="image/png",
                 )
 
-# ============================================================
-# SECTION: Quality Control
-# ============================================================
 elif section == "Quality Control":
     st.header("Quality Control")
     sub_mapping, sub_qc, sub_overview = st.tabs(["Mapping QC", "QC Report", "Sample Overview"])
@@ -473,9 +468,6 @@ elif section == "Quality Control":
         else:
             st.info("Upload a per-sample sgRNA count table to see the sample overview.")
 
-# ============================================================
-# SECTION: Results
-# ============================================================
 elif section == "Results":
     st.header("Results")
     sub_volcano, sub_mle_results = st.tabs(["Test Results", "MLE Results"])
@@ -545,7 +537,25 @@ elif section == "Results":
 
         if mle_df is not None:
             if len(mle_conditions) < 2:
-                st.warning("This MLE result has only one condition. At least two are needed to compare beta scores.")
+                single_condition = mle_conditions[0]
+                st.caption(
+                    f"This result has a single condition ({single_condition}), so beta scores are plotted "
+                    "against significance. With two or more conditions, a beta vs. beta comparison is shown."
+                )
+                mle_fdr_threshold = st.number_input(
+                    "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr_single"
+                )
+                mle_fig = build_beta_score_plot(
+                    mle_df, condition=single_condition, fdr_threshold=mle_fdr_threshold
+                )
+                st.session_state["fig_mle"] = mle_fig
+                st.plotly_chart(mle_fig, use_container_width=True)
+                st.download_button(
+                    "Download beta score plot (PNG)",
+                    data=figure_to_png_bytes(mle_fig),
+                    file_name=f"beta_score_{single_condition}.png",
+                    mime="image/png",
+                )
             else:
                 col1, col2 = st.columns(2)
                 condition_x = col1.selectbox("X axis condition", mle_conditions, index=0)
@@ -576,9 +586,6 @@ elif section == "Results":
         elif mle_source == "Upload file":
             st.info("Upload a MAGeCK MLE gene_summary.txt file to get started.")
 
-# ============================================================
-# SECTION: Comparisons
-# ============================================================
 elif section == "Comparisons":
     st.header("Comparisons")
     sub_replicates, sub_screen_comparison = st.tabs(["Replicate Correlation", "Screen Comparison"])
