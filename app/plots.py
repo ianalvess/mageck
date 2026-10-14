@@ -467,28 +467,34 @@ def build_beta_comparison_plot(
     fig.update_layout(height=600)
     return fig
 
-def build_gc_content_plot(gc_df: pd.DataFrame, sample_name: str = "Sample") -> go.Figure:
+def build_gc_content_plot(gc_df: pd.DataFrame, sample_name: str = "Sample", nbins: int = 50) -> go.Figure:
     """Build a density plot of per-read GC content.
+
+    Bins the data in Python first (instead of letting Plotly send every
+    raw read value to the browser), since GC content is often computed
+    over millions of reads for large FASTQ files — sending the raw
+    values would exceed Streamlit's message size limit.
 
     Args:
         gc_df: DataFrame produced by app.fastq_qc.compute_gc_distribution.
         sample_name: label used in the plot title.
+        nbins: number of histogram bins.
 
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    fig = px.histogram(
-        gc_df,
-        x="gc_percent",
-        histnorm="probability density",
-        nbins=50,
-        labels={"gc_percent": "mean % GC content"},
+    counts, bin_edges = np.histogram(gc_df["gc_percent"], bins=nbins, range=(0, 100), density=True)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    fig = px.bar(
+        x=bin_centers,
+        y=counts,
+        labels={"x": "mean % GC content", "y": "density"},
         title=f"GC Content Distribution ({sample_name})",
     )
     fig.update_traces(marker_line_width=0)
-    fig.update_layout(height=400, showlegend=False)
+    fig.update_layout(height=400, showlegend=False, bargap=0)
     return fig
-
 
 def build_quality_profile_plot(quality_df: pd.DataFrame, sample_name: str = "Sample") -> go.Figure:
     """Build a line plot of median base quality by read position.
@@ -508,4 +514,42 @@ def build_quality_profile_plot(quality_df: pd.DataFrame, sample_name: str = "Sam
         title=f"Base Quality Distribution ({sample_name})",
     )
     fig.update_layout(height=400, showlegend=False, yaxis_range=[0, 45])
+    return fig
+
+def build_beta_score_plot(
+    df: pd.DataFrame,
+    condition: str,
+    fdr_threshold: float = 0.05,
+) -> go.Figure:
+    """Build a volcano-style plot of MAGeCK MLE beta scores for one condition.
+
+    Args:
+        df: DataFrame produced by app.parser.load_mle_gene_summary.
+        condition: name of the condition to plot (e.g. "tumor").
+        fdr_threshold: FDR cutoff used to color genes as significant.
+
+    Returns:
+        A Plotly Figure ready to be rendered.
+    """
+    beta_col = f"{condition}|beta"
+    fdr_col = f"{condition}|fdr"
+
+    plot_df = df.copy()
+    plot_df["neg_log10_fdr"] = -np.log10(plot_df[fdr_col].clip(lower=1e-300))
+    is_significant = plot_df[fdr_col] < fdr_threshold
+    plot_df["significance"] = is_significant.map({True: "Significant", False: "Not significant"})
+
+    fig = px.scatter(
+        plot_df,
+        x=beta_col,
+        y="neg_log10_fdr",
+        color="significance",
+        color_discrete_map={"Significant": "#d62728", "Not significant": "#7f7f7f"},
+        hover_name="Gene",
+        hover_data={fdr_col: ":.2e"},
+        labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": "-log10(FDR)"},
+        title=f"MLE Beta Score Plot: {condition}",
+    )
+    fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
+    fig.update_layout(height=600)
     return fig
