@@ -30,3 +30,17 @@ single_fig = build_beta_score_plot(df, condition="PLX", fdr_threshold=0.05)
 sig_genes = [pt for trace in single_fig.data if trace.name == "Significant" for pt in trace.hovertext]
 assert set(sig_genes) == {"GENE_A", "GENE_B", "GENE_D"}
 print("OK: single-condition beta score plot flags the expected genes")
+
+zero_df = df.copy()
+zero_df.loc[0, "PLX|fdr"] = 0.0
+zero_fig = build_beta_score_plot(zero_df, condition="PLX")
+max_y = max(max(trace.y) for trace in zero_fig.data)
+assert max_y < 10, f"FDR=0 should be floored, got y={max_y}"
+print("OK: FDR of 0 no longer produces an extreme y value")
+
+wald_df = df.copy()
+wald_df["PLX|wald-fdr"] = [0.5, 0.5, 0.5, 0.001]
+wald_fig = build_beta_score_plot(wald_df, condition="PLX", fdr_suffix="wald-fdr")
+wald_sig = [pt for trace in wald_fig.data if trace.name == "Significant" for pt in trace.hovertext]
+assert list(wald_sig) == ["GENE_D"]
+print("OK: fdr_suffix selects the Wald FDR column")
