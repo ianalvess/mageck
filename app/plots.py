@@ -400,6 +400,7 @@ def build_beta_comparison_plot(
     condition_y: str,
     fdr_threshold: float = 0.05,
     top_n: int = 10,
+    fdr_suffix: str = "fdr",
 ) -> go.Figure:
     """Compare MLE beta scores between two conditions, gene by gene.
 
@@ -413,8 +414,8 @@ def build_beta_comparison_plot(
     Returns:
         A Plotly Figure ready to be rendered.
     """
-    beta_x, fdr_x = f"{condition_x}|beta", f"{condition_x}|fdr"
-    beta_y, fdr_y = f"{condition_y}|beta", f"{condition_y}|fdr"
+    beta_x, fdr_x = f"{condition_x}|beta", f"{condition_x}|{fdr_suffix}"
+    beta_y, fdr_y = f"{condition_y}|beta", f"{condition_y}|{fdr_suffix}"
 
     plot_df = df.copy()
     sig_x = plot_df[fdr_x] < fdr_threshold
@@ -520,6 +521,7 @@ def build_beta_score_plot(
     df: pd.DataFrame,
     condition: str,
     fdr_threshold: float = 0.05,
+    fdr_suffix: str = "fdr",
 ) -> go.Figure:
     """Build a volcano-style plot of MAGeCK MLE beta scores for one condition.
 
@@ -527,16 +529,24 @@ def build_beta_score_plot(
         df: DataFrame produced by app.parser.load_mle_gene_summary.
         condition: name of the condition to plot (e.g. "tumor").
         fdr_threshold: FDR cutoff used to color genes as significant.
+        fdr_suffix: FDR column to use: "fdr" (permutation) or "wald-fdr".
 
     Returns:
         A Plotly Figure ready to be rendered.
     """
     beta_col = f"{condition}|beta"
-    fdr_col = f"{condition}|fdr"
+    fdr_col = f"{condition}|{fdr_suffix}"
 
     plot_df = df.copy()
-    plot_df["neg_log10_fdr"] = -np.log10(plot_df[fdr_col].clip(lower=1e-300))
-    is_significant = plot_df[fdr_col] < fdr_threshold
+    fdr_values = plot_df[fdr_col]
+
+    # An FDR of exactly 0 would map to an extreme y value and squash every other gene,
+    # so floor it one order of magnitude below the smallest non-zero FDR in the file.
+    smallest_nonzero = fdr_values[fdr_values > 0].min()
+    floor = smallest_nonzero / 10 if pd.notna(smallest_nonzero) else 1e-300
+    plot_df["neg_log10_fdr"] = -np.log10(fdr_values.clip(lower=floor))
+
+    is_significant = fdr_values < fdr_threshold
     plot_df["significance"] = is_significant.map({True: "Significant", False: "Not significant"})
 
     fig = px.scatter(
