@@ -536,17 +536,36 @@ elif section == "Results":
                 mle_df, mle_conditions = None, []
 
         if mle_df is not None:
+            fdr_methods = {"Permutation (fdr)": "fdr"}
+            if any(col.endswith("|wald-fdr") for col in mle_df.columns):
+                fdr_methods["Wald (wald-fdr)"] = "wald-fdr"
+
+            fdr_method_label = st.radio("FDR method", list(fdr_methods), horizontal=True, key="mle_fdr_method")
+            fdr_suffix = fdr_methods[fdr_method_label]
+            if fdr_suffix == "wald-fdr":
+                st.warning(
+                    "Wald FDR can be over-optimistic with few replicates or sparse counts. "
+                    "Confirm hits with another method (e.g. mageck test)."
+                )
+
+            mle_fdr_threshold = st.number_input(
+                "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
+            )
+
+            def count_below_threshold(condition):
+                fdr_values = mle_df[f"{condition}|{fdr_suffix}"]
+                return int((fdr_values < mle_fdr_threshold).sum()), int(fdr_values.notna().sum())
+
             if len(mle_conditions) < 2:
                 single_condition = mle_conditions[0]
+                n_sig, n_total = count_below_threshold(single_condition)
+                st.metric(f"Genes with FDR < {mle_fdr_threshold} ({single_condition})", f"{n_sig:,} of {n_total:,}")
                 st.caption(
                     f"This result has a single condition ({single_condition}), so beta scores are plotted "
                     "against significance. With two or more conditions, a beta vs. beta comparison is shown."
                 )
-                mle_fdr_threshold = st.number_input(
-                    "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr_single"
-                )
                 mle_fig = build_beta_score_plot(
-                    mle_df, condition=single_condition, fdr_threshold=mle_fdr_threshold
+                    mle_df, condition=single_condition, fdr_threshold=mle_fdr_threshold, fdr_suffix=fdr_suffix
                 )
                 st.session_state["fig_mle"] = mle_fig
                 st.plotly_chart(mle_fig, use_container_width=True)
@@ -562,15 +581,21 @@ elif section == "Results":
                 condition_y = col2.selectbox(
                     "Y axis condition", mle_conditions, index=min(1, len(mle_conditions) - 1)
                 )
-                mle_fdr_threshold = st.number_input(
-                    "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
-                )
 
                 if condition_x == condition_y:
                     st.warning("Select two different conditions to compare.")
                 else:
+                    metric_col1, metric_col2 = st.columns(2)
+                    for metric_col, condition in ((metric_col1, condition_x), (metric_col2, condition_y)):
+                        n_sig, n_total = count_below_threshold(condition)
+                        metric_col.metric(f"Genes with FDR < {mle_fdr_threshold} ({condition})", f"{n_sig:,} of {n_total:,}")
+
                     mle_fig = build_beta_comparison_plot(
-                        mle_df, condition_x=condition_x, condition_y=condition_y, fdr_threshold=mle_fdr_threshold
+                        mle_df,
+                        condition_x=condition_x,
+                        condition_y=condition_y,
+                        fdr_threshold=mle_fdr_threshold,
+                        fdr_suffix=fdr_suffix,
                     )
                     st.session_state["fig_mle"] = mle_fig
                     st.plotly_chart(mle_fig, use_container_width=True)
