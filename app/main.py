@@ -22,6 +22,7 @@ from plots import (
     build_quality_profile_plot,
 )
 from fastq_qc import compute_gc_distribution, compute_quality_profile
+from library_check import filter_observed, summarize_observed
 
 from pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
 
@@ -381,7 +382,8 @@ elif section == "Quality Control":
 
         if source == "Use last count run":
             if "pipeline_count_table" not in st.session_state:
-                st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
+                st.warning(
+                    "No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
                 counts_qc_df = None
             else:
                 counts_qc_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
@@ -390,14 +392,47 @@ elif section == "Quality Control":
             uploaded_counts_qc_file = st.file_uploader(
                 "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="qc_counts"
             )
-            counts_qc_df = pd.read_csv(uploaded_counts_qc_file, sep="\t") if uploaded_counts_qc_file is not None else None
+            counts_qc_df = pd.read_csv(uploaded_counts_qc_file,
+                                       sep="\t") if uploaded_counts_qc_file is not None else None
 
         if counts_qc_df is not None:
-            numeric_columns = counts_qc_df.select_dtypes(include="number").columns.tolist()
-            count_column = st.selectbox("Sample", numeric_columns)
+            sample_columns = counts_qc_df.select_dtypes(include="number").columns.tolist()
+            id_column = "sgRNA" if "sgRNA" in counts_qc_df.columns else counts_qc_df.columns[0]
 
-            gini = compute_gini_index(counts_qc_df[count_column])
-            st.metric("Gini index", f"{gini:.3f}")
+            observed_summary = summarize_observed(counts_qc_df, sample_columns, id_column=id_column)
+            if observed_summary["unobserved"] > 0:
+                st.warning(
+                    f"{observed_summary['unobserved']:,} of {observed_summary['total']:,} sgRNAs "
+                    f"({observed_summary['unobserved_fraction']:.1%}) have zero reads in every sample. "
+                    "This usually means part of the library file (for example one half of a split "
+                    "library) was not used in this screen."
+                )
+                with st.expander("Never-observed sgRNAs by ID prefix"):
+                    st.dataframe(observed_summary["by_prefix"], use_container_width=True)
+
+                if st.checkbox(
+                        "Exclude never-observed sgRNAs from the analysis below",
+                        value=True,
+                        key="qc_exclude_unobserved",
+                ):
+                    counts_qc_df = filter_observed(counts_qc_df, sample_columns)
+                    st.caption(f"Showing {len(counts_qc_df):,} sgRNAs after excluding never-observed ones.")
+
+            count_column = st.selectbox("Sample", sample_columns)
+            sample_counts = counts_qc_df[count_column]
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric(
+                "Gini (log2, as MAGeCK)",
+                f"{compute_gini_index(sample_counts, log_scale=True):.3f}",
+                help="Same definition as the GiniIndex in the MAGeCK countsummary (computed on log2(count + 1)).",
+            )
+            col2.metric(
+                "Gini (raw counts)",
+                f"{compute_gini_index(sample_counts):.3f}",
+                help="Sensitive to a few dominant sgRNAs: values near 1 mean almost all reads sit in very few sgRNAs.",
+            )
+            col3.metric("sgRNAs with zero reads", f"{(sample_counts == 0).mean():.1%}")
 
             qc_fig = build_read_distribution_plot(counts_qc_df, count_column)
             st.session_state["fig_qc"] = qc_fig
