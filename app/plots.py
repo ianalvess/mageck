@@ -58,7 +58,7 @@ def build_volcano_plot(
     return fig
 
 
-def compute_gini_index(values: pd.Series) -> float:
+def compute_gini_index(values: pd.Series, log_scale: bool = False) -> float:
     """Compute the Gini index of a distribution of read counts.
 
     0 means perfectly even distribution across sgRNAs; 1 means
@@ -66,17 +66,25 @@ def compute_gini_index(values: pd.Series) -> float:
 
     Args:
         values: a Series of non-negative counts (e.g. read counts per sgRNA).
+        log_scale: if True, compute the index on log2(count + 1), which is
+            how the MAGeCK countsummary reports its GiniIndex. Raw counts
+            (the default) are far more sensitive to a few dominant sgRNAs.
 
     Returns:
-        The Gini index as a float between 0 and 1.
+        The Gini index as a float between 0 and 1 (NaN if all counts are zero).
     """
-    sorted_values = np.sort(values.to_numpy())
-    n = len(sorted_values)
-    cumulative = np.cumsum(sorted_values)
-    return (2 * np.sum((np.arange(1, n + 1)) * sorted_values) - (n + 1) * cumulative[-1]) / (
-        n * cumulative[-1]
-    )
+    data = values.to_numpy(dtype=float)
+    if log_scale:
+        data = np.log2(data + 1)
 
+    sorted_values = np.sort(data)
+    n = len(sorted_values)
+    total = sorted_values.sum()
+    if total == 0:
+        return float("nan")
+
+    weighted_sum = np.sum(np.arange(1, n + 1) * sorted_values)
+    return float((2 * weighted_sum - (n + 1) * total) / (n * total))
 
 def build_read_distribution_plot(df: pd.DataFrame, count_column: str) -> go.Figure:
     """Build a histogram of read counts per sgRNA.
