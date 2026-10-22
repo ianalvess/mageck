@@ -22,7 +22,8 @@ from plots import (
     build_quality_profile_plot,
 )
 from fastq_qc import compute_gc_distribution, compute_quality_profile
-from library_check import filter_observed, summarize_observed
+from library_check import filter_observed, summarize_observed, write_observed_count_table
+from convergence import find_convergent_sgrnas, summarize_gene_convergence
 
 from pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
 
@@ -44,6 +45,60 @@ def list_available_files():
         if p.is_file() and not p.name.startswith(".")
     )
 
+@st.cache_data(show_spinner=False)
+def summarize_count_file(path_str: str, modified_time: float) -> dict:
+    """Summarize never-observed sgRNAs in a count table file (cached per file version)."""
+    counts_df = pd.read_csv(path_str, sep="\t")
+    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    id_column = "sgRNA" if "sgRNA" in counts_df.columns else counts_df.columns[0]
+    return summarize_observed(counts_df, sample_columns, id_column=id_column)
+
+
+def observed_only_option(count_path, key: str) -> bool:
+    """Warn about never-observed sgRNAs in a count table and offer to exclude them.
+
+    Returns True if the user chose to use only observed sgRNAs.
+    """
+    if count_path is None or not Path(count_path).exists():
+        return False
+
+    summary = summarize_count_file(str(count_path), Path(count_path).stat().st_mtime)
+    if summary["unobserved"] == 0:
+        return False
+
+    st.warning(
+        f"{summary['unobserved']:,} of {summary['total']:,} sgRNAs ({summary['unobserved_fraction']:.1%}) "
+        "have zero reads in every sample, which usually means part of the library file was not used "
+        "in this screen. They can distort median normalization."
+    )
+    with st.expander("Never-observed sgRNAs by ID prefix"):
+        st.dataframe(summary["by_prefix"], use_container_width=True)
+    return st.checkbox("Use only sgRNAs observed in at least one sample", value=True, key=key)
+
+def apply_observed_filter(counts_df: pd.DataFrame, key: str) -> pd.DataFrame:
+    """Warn about never-observed sgRNAs in a loaded count table and optionally drop them.
+
+    Returns the filtered table if the user keeps the checkbox on, otherwise the original.
+    """
+    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    id_column = "sgRNA" if "sgRNA" in counts_df.columns else counts_df.columns[0]
+    summary = summarize_observed(counts_df, sample_columns, id_column=id_column)
+    if summary["unobserved"] == 0:
+        return counts_df
+
+    st.warning(
+        f"{summary['unobserved']:,} of {summary['total']:,} sgRNAs ({summary['unobserved_fraction']:.1%}) "
+        "have zero reads in every sample. Keeping them adds points at (0, 0) that inflate the "
+        "correlation values (the PCA is not affected, since it standardizes each sgRNA)."
+    )
+    with st.expander("Never-observed sgRNAs by ID prefix"):
+        st.dataframe(summary["by_prefix"], use_container_width=True)
+
+    if st.checkbox("Exclude never-observed sgRNAs", value=True, key=key):
+        filtered = filter_observed(counts_df, sample_columns)
+        st.caption(f"Using {len(filtered):,} sgRNAs after excluding never-observed ones.")
+        return filtered
+    return counts_df
 
 section = st.sidebar.radio(
     "Section",
@@ -141,6 +196,7 @@ if section == "Pipeline":
             test_count_choice = st.selectbox("Count table file", available_files_test, key="test_count_choice")
             test_count_path = DATA_INPUT_DIR / test_count_choice if test_count_choice else None
 
+        use_observed_only_test = observed_only_option(test_count_path, key="test_observed_only")
         available_labels = st.session_state.get("last_count_labels", [])
         if available_labels:
             control_labels = st.multiselect("Control sample labels", options=available_labels, key="test_control_labels")
@@ -172,9 +228,18 @@ if section == "Pipeline":
             test_work_dir = Path("data/pipeline_runs") / test_output_prefix
             test_work_dir.mkdir(parents=True, exist_ok=True)
 
+            test_input_path = test_count_path
+            if use_observed_only_test:
+                test_input_path = test_work_dir / f"{test_output_prefix}.observed.count.txt"
+                observed_result = write_observed_count_table(test_count_path, test_input_path)
+                st.caption(
+                    f"Using {observed_result['kept']:,} observed sgRNAs "
+                    f"({observed_result['removed']:,} never-observed sgRNAs removed)."
+                )
+
             with st.spinner("Running mageck test..."):
                 test_result = run_mageck_test(
-                    count_table_path=test_count_path,
+                    count_table_path=test_input_path,
                     treatment_labels=treatment_labels,
                     control_labels=control_labels,
                     output_dir=test_work_dir,
@@ -224,6 +289,7 @@ if section == "Pipeline":
                 mle_count_choice = st.selectbox("Count table file", available_files_mle, key="mle_count_choice")
                 mle_count_path = DATA_INPUT_DIR / mle_count_choice if mle_count_choice else None
 
+            use_observed_only_mle = observed_only_option(mle_count_path, key="mle_observed_only")
             design_choice = st.selectbox("Design matrix file", available_files_mle, key="mle_design_choice")
             mle_output_prefix = st.text_input("Output prefix", value="mle_run", key="mle_output_prefix")
 
@@ -234,9 +300,18 @@ if section == "Pipeline":
                 mle_work_dir.mkdir(parents=True, exist_ok=True)
                 design_path = DATA_INPUT_DIR / design_choice
 
+                mle_input_path = mle_count_path
+                if use_observed_only_mle:
+                    mle_input_path = mle_work_dir / f"{mle_output_prefix}.observed.count.txt"
+                    observed_result = write_observed_count_table(mle_count_path, mle_input_path)
+                    st.caption(
+                        f"Using {observed_result['kept']:,} observed sgRNAs "
+                        f"({observed_result['removed']:,} never-observed sgRNAs removed)."
+                    )
+
                 with st.spinner("Running mageck mle..."):
                     mle_result = run_mageck_mle(
-                        count_table_path=mle_count_path,
+                        count_table_path=mle_input_path,
                         design_matrix_path=design_path,
                         output_dir=mle_work_dir,
                         output_prefix=mle_output_prefix,
@@ -463,6 +538,7 @@ elif section == "Quality Control":
 
         if uploaded_overview_file is not None:
             overview_df = pd.read_csv(uploaded_overview_file, sep="\t")
+            overview_df = apply_observed_filter(overview_df, key="overview_observed_only")
             numeric_columns = overview_df.select_dtypes(include="number").columns.tolist()
 
             selected_samples = st.multiselect(
@@ -648,8 +724,9 @@ elif section == "Results":
 
 elif section == "Comparisons":
     st.header("Comparisons")
-    sub_replicates, sub_screen_comparison = st.tabs(["Replicate Correlation", "Screen Comparison"])
-
+    sub_replicates, sub_screen_comparison, sub_convergence = st.tabs(
+        ["Replicate Correlation", "Screen Comparison", "Replicate Convergence"]
+    )
     with sub_replicates:
         st.write(
             "Compares raw sgRNA read counts between two samples to check reproducibility. This is "
@@ -679,6 +756,7 @@ elif section == "Comparisons":
             counts_df = pd.read_csv(uploaded_counts_file, sep="\t") if uploaded_counts_file is not None else None
 
         if counts_df is not None:
+            counts_df = apply_observed_filter(counts_df, key="replicates_observed_only")
             numeric_columns = counts_df.select_dtypes(include="number").columns.tolist()
 
             group_text = st.text_input(
@@ -774,3 +852,97 @@ elif section == "Comparisons":
             st.dataframe(merged, use_container_width=True)
         else:
             st.info("Upload both gene_summary.txt files to compare.")
+
+    with sub_convergence:
+        st.write(
+            "Finds sgRNAs that are enriched in every replicate of a condition relative to the controls, "
+            "and genes whose independent sgRNAs converge on the same result. An sgRNA that expands "
+            "hugely in only one replicate does not qualify, so this is robust to the clonal jackpots "
+            "that can dominate gene-level tests."
+        )
+
+        source = st.radio(
+            "Data source",
+            ["Upload file", "Use last count run"],
+            key="convergence_source",
+            horizontal=True,
+        )
+
+        if source == "Use last count run":
+            if "pipeline_count_table" not in st.session_state:
+                st.warning("No count table yet. Run mageck count in Pipeline > Run Count first, or switch to 'Upload file'.")
+                convergence_df = None
+            else:
+                convergence_df = pd.read_csv(st.session_state["pipeline_count_table"], sep="\t")
+                st.caption(f"Using: {st.session_state['pipeline_count_table']}")
+        else:
+            uploaded_convergence_file = st.file_uploader(
+                "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="convergence_counts"
+            )
+            convergence_df = (
+                pd.read_csv(uploaded_convergence_file, sep="\t") if uploaded_convergence_file is not None else None
+            )
+
+        if convergence_df is not None:
+            convergence_df = apply_observed_filter(convergence_df, key="convergence_observed_only")
+            sample_columns = convergence_df.select_dtypes(include="number").columns.tolist()
+            id_column = "sgRNA" if "sgRNA" in convergence_df.columns else convergence_df.columns[0]
+            gene_column = "Gene" if "Gene" in convergence_df.columns else convergence_df.columns[1]
+
+            col1, col2 = st.columns(2)
+            control_columns = col1.multiselect("Control samples", sample_columns, key="convergence_controls")
+            replicate_columns = col2.multiselect("Replicates of the condition", sample_columns, key="convergence_replicates")
+
+            col3, col4 = st.columns(2)
+            min_reads = col3.number_input(
+                "Minimum reads in every replicate", min_value=1, value=100, step=10, key="convergence_min_reads"
+            )
+            min_fold = col4.number_input(
+                "Minimum fold over controls in every replicate",
+                min_value=1.0,
+                value=10.0,
+                step=1.0,
+                key="convergence_min_fold",
+            )
+
+            if set(control_columns) & set(replicate_columns):
+                st.error("A sample can't be both a control and a replicate.")
+            elif len(control_columns) == 0 or len(replicate_columns) < 2:
+                st.info("Select at least one control sample and two replicates to continue.")
+            else:
+                convergent_df = find_convergent_sgrnas(
+                    convergence_df,
+                    control_columns,
+                    replicate_columns,
+                    min_reads=int(min_reads),
+                    min_fold=float(min_fold),
+                    id_column=id_column,
+                    gene_column=gene_column,
+                )
+                summary = summarize_gene_convergence(convergent_df, convergence_df, gene_column=gene_column)
+
+                metric1, metric2, metric3 = st.columns(3)
+                metric1.metric("Convergent sgRNAs", f"{summary['n_sgrnas']:,}")
+                metric2.metric("Same-gene pairs observed", f"{summary['observed_pairs']:,}")
+                metric3.metric("Expected by chance", f"{summary['expected_pairs']:.4f}")
+                st.caption(
+                    "The expected value assumes the convergent sgRNAs were picked uniformly at random from "
+                    "the library. It is a reference, not a formal p-value, so try several thresholds."
+                )
+
+                st.subheader("Genes with 2+ convergent sgRNAs")
+                if summary["genes"].empty:
+                    st.info("No gene has two or more convergent sgRNAs with these thresholds.")
+                else:
+                    st.dataframe(summary["genes"], use_container_width=True)
+
+                st.subheader("Convergent sgRNAs")
+                st.dataframe(convergent_df, use_container_width=True)
+                st.download_button(
+                    "Download convergent sgRNAs (CSV)",
+                    data=convergent_df.to_csv(index=False),
+                    file_name="convergent_sgrnas.csv",
+                    mime="text/csv",
+                )
+        elif source == "Upload file":
+            st.info("Upload a per-sample sgRNA count table to look for convergent sgRNAs.")
