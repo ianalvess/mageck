@@ -107,11 +107,12 @@ def build_read_distribution_plot(df: pd.DataFrame, count_column: str) -> go.Figu
     return fig
 
 
-def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
+def build_mapping_summary_plot(df: pd.DataFrame, threshold: float = 0.8) -> go.Figure:
     """Build a grouped bar chart of mapping percentage per sample.
 
     Args:
         df: DataFrame produced by app.parser.load_countsummary.
+        threshold: mapping-rate cutoff drawn as a dashed line (fraction between 0 and 1).
 
     Returns:
         A Plotly Figure ready to be rendered.
@@ -125,7 +126,7 @@ def build_mapping_summary_plot(df: pd.DataFrame) -> go.Figure:
         text_auto=".1%",
     )
     fig.update_yaxes(tickformat=".0%", range=[0, 1])
-    fig.add_hline(y=0.8, line_dash="dash", line_color="red", annotation_text="80% threshold")
+    fig.add_hline(y=threshold, line_dash="dash", line_color="red", annotation_text=f"{threshold:.0%} threshold")
     fig.update_layout(height=400)
     return fig
 
