@@ -411,11 +411,30 @@ elif section == "Quality Control":
             count_df = load_countsummary(uploaded_count_file) if uploaded_count_file is not None else None
 
         if count_df is not None:
-            low_mapping = count_df[count_df["Percentage"] < 0.8]
+            mapping_threshold = st.number_input(
+                "Mapping rate warning threshold (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=80.0,
+                step=5.0,
+                key="mapping_threshold",
+                help="Heuristic cutoff, not an official MAGeCK criterion. Acceptable mapping rates depend on the library and the read structure.",
+            )
+            low_mapping = count_df[count_df["Percentage"] < mapping_threshold / 100]
             if not low_mapping.empty:
-                st.warning(f"Samples below 80% mapping: {', '.join(low_mapping['Label'])}")
+                st.warning(f"Samples below {mapping_threshold:.0f}% mapping: {', '.join(low_mapping['Label'])}")
 
-            mapping_fig = build_mapping_summary_plot(count_df)
+            if "TotalsgRNAs" in count_df.columns:
+                min_zero_fraction = (count_df["Zerocounts"] / count_df["TotalsgRNAs"]).min()
+                if min_zero_fraction >= 0.3:
+                    st.info(
+                        f"Even the best sample has {min_zero_fraction:.0%} of sgRNAs with zero reads. This usually "
+                        "means part of the library file was not used in this screen, which inflates the zero-count "
+                        "plot and the GiniIndex column. Check Quality Control > QC Report, which can exclude "
+                        "never-observed sgRNAs."
+                    )
+
+            mapping_fig = build_mapping_summary_plot(count_df, threshold=mapping_threshold / 100)
             st.session_state["fig_mapping"] = mapping_fig
             st.plotly_chart(mapping_fig, use_container_width=True)
             st.download_button(
