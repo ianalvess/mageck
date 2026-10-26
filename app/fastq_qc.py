@@ -40,7 +40,7 @@ def sample_fastq_reads(path: str | Path, max_reads: int | None = None):
             if not header:
                 break  # end of file reached
             sequence = f.readline().strip()
-            _plus_line = f.readline()
+            f.readline()
             quality = f.readline().strip()
             yield sequence, quality
             count += 1
