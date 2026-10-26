@@ -50,3 +50,26 @@ with tempfile.TemporaryDirectory() as tmp:
     assert written["sgRNA"].tolist() == ["HGLibA_1", "HGLibA_3"]
     assert written.columns.tolist() == ["sgRNA", "Gene", "control1", "tumor1"]
 print("OK: filtered count table written with the expected sgRNAs and columns")
+
+from app.library_check import count_sample_columns
+
+mixed = pd.DataFrame(
+    {
+        "sgRNA": ["a", "b"],
+        "Gene": ["G", "H"],
+        "control1": [1, 0],
+        "tumor1": [5, 2],
+        "LFC": [-1.5, 0.3],
+        "FDR": [0.01, 0.9],
+        "ratio": [0.5, 2.0],
+        "neg|rank": [1, 2],
+    }
+)
+
+assert count_sample_columns(mixed) == ["control1", "tumor1"]
+
+gene_summary_like = pd.DataFrame(
+    {"id": ["G"], "num": [3], "neg|score": [0.5], "neg|rank": [4], "pos|lfc": [1.2]}
+)
+assert len(count_sample_columns(gene_summary_like)) < 2
+print("OK: only raw count columns are treated as samples")
