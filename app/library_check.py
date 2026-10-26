@@ -54,6 +54,22 @@ def filter_observed(counts_df: pd.DataFrame, sample_columns: list[str]) -> pd.Da
     """Return only the sgRNAs observed in at least one sample."""
     return counts_df[observed_mask(counts_df, sample_columns)].copy()
 
+def count_sample_columns(df: pd.DataFrame) -> list[str]:
+    """Return the columns of a table that hold per-sample raw read counts.
+
+    A sample column must be numeric, non-negative and integer-valued, and its
+    name must not contain "|" (as in MAGeCK gene_summary columns). This
+    excludes summary columns such as LFC, FDR, scores or p-values.
+    """
+    columns = []
+    for name in df.select_dtypes(include="number").columns:
+        if "|" in str(name):
+            continue
+        values = df[name].dropna()
+        if len(values) > 0 and (values >= 0).all() and (values % 1 == 0).all():
+            columns.append(name)
+    return columns
+
 
 def write_observed_count_table(count_path: str | Path, output_path: str | Path) -> dict:
     """Write a copy of a MAGeCK count table keeping only observed sgRNAs.
@@ -66,7 +82,7 @@ def write_observed_count_table(count_path: str | Path, output_path: str | Path) 
         A dict with the number of sgRNAs kept and removed.
     """
     counts_df = pd.read_csv(count_path, sep="\t")
-    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    sample_columns = count_sample_columns(counts_df)
     filtered = filter_observed(counts_df, sample_columns)
 
     output_path = Path(output_path)
