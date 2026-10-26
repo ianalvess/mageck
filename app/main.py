@@ -22,7 +22,7 @@ from plots import (
     build_quality_profile_plot,
 )
 from fastq_qc import compute_gc_distribution, compute_quality_profile
-from library_check import filter_observed, summarize_observed, write_observed_count_table
+from library_check import filter_observed, summarize_observed, write_observed_count_table, count_sample_columns
 from convergence import find_convergent_sgrnas, summarize_gene_convergence
 
 from pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
@@ -49,7 +49,7 @@ def list_available_files():
 def summarize_count_file(path_str: str, modified_time: float) -> dict:
     """Summarize never-observed sgRNAs in a count table file (cached per file version)."""
     counts_df = pd.read_csv(path_str, sep="\t")
-    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    sample_columns = count_sample_columns(counts_df)
     id_column = "sgRNA" if "sgRNA" in counts_df.columns else counts_df.columns[0]
     return summarize_observed(counts_df, sample_columns, id_column=id_column)
 
@@ -80,7 +80,7 @@ def apply_observed_filter(counts_df: pd.DataFrame, key: str) -> pd.DataFrame:
 
     Returns the filtered table if the user keeps the checkbox on, otherwise the original.
     """
-    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    sample_columns = count_sample_columns(counts_df)
     id_column = "sgRNA" if "sgRNA" in counts_df.columns else counts_df.columns[0]
     summary = summarize_observed(counts_df, sample_columns, id_column=id_column)
     if summary["unobserved"] == 0:
@@ -98,6 +98,19 @@ def apply_observed_filter(counts_df: pd.DataFrame, key: str) -> pd.DataFrame:
         filtered = filter_observed(counts_df, sample_columns)
         st.caption(f"Using {len(filtered):,} sgRNAs after excluding never-observed ones.")
         return filtered
+    return counts_df
+
+def validated_count_table(counts_df):
+    """Return counts_df if it looks like a per-sample count table, otherwise show an error and return None."""
+    if counts_df is None:
+        return None
+    if len(count_sample_columns(counts_df)) < 2:
+        st.error(
+            "This does not look like a per-sample count table: fewer than two columns of raw, "
+            "non-negative integer counts were found. Upload the count.txt produced by mageck count "
+            "(not a gene_summary, sgrna_summary or normalized table)."
+        )
+        return None
     return counts_df
 
 section = st.sidebar.radio(
@@ -488,9 +501,9 @@ elif section == "Quality Control":
             )
             counts_qc_df = pd.read_csv(uploaded_counts_qc_file,
                                        sep="\t") if uploaded_counts_qc_file is not None else None
-
+            counts_qc_df = validated_count_table(counts_qc_df)
         if counts_qc_df is not None:
-            sample_columns = counts_qc_df.select_dtypes(include="number").columns.tolist()
+            sample_columns = count_sample_columns(counts_qc_df)
             id_column = "sgRNA" if "sgRNA" in counts_qc_df.columns else counts_qc_df.columns[0]
 
             observed_summary = summarize_observed(counts_qc_df, sample_columns, id_column=id_column)
@@ -555,10 +568,15 @@ elif section == "Quality Control":
             "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="overview_counts"
         )
 
-        if uploaded_overview_file is not None:
-            overview_df = pd.read_csv(uploaded_overview_file, sep="\t")
+        overview_df = (
+            validated_count_table(pd.read_csv(uploaded_overview_file, sep="\t"))
+            if uploaded_overview_file is not None
+            else None
+        )
+
+        if overview_df is not None:
             overview_df = apply_observed_filter(overview_df, key="overview_observed_only")
-            numeric_columns = overview_df.select_dtypes(include="number").columns.tolist()
+            numeric_columns = count_sample_columns(overview_df)
 
             selected_samples = st.multiselect(
                 "Samples to include", numeric_columns, default=numeric_columns
@@ -681,6 +699,14 @@ elif section == "Results":
             mle_fdr_threshold = st.number_input(
                 "FDR threshold", value=0.05, min_value=0.0, max_value=1.0, step=0.01, key="mle_fdr"
             )
+            min_fdr = min(mle_df[f"{condition}|{fdr_suffix}"].min() for condition in mle_conditions)
+            if min_fdr > mle_fdr_threshold:
+                st.info(
+                    f"With the {fdr_method_label} method the smallest FDR in this file is {min_fdr:.3f}, so no "
+                    f"gene can pass the {mle_fdr_threshold} threshold. Permutation FDR without control sgRNAs "
+                    "often stops at a floor like this. Try the Wald FDR (with caution) or re-run MLE with "
+                    "control sgRNAs."
+                )
 
             def count_below_threshold(condition):
                 fdr_values = mle_df[f"{condition}|{fdr_suffix}"]
@@ -773,10 +799,11 @@ elif section == "Comparisons":
                 "Upload a per-sample count table (e.g. count.txt)", type=["txt", "tsv"], key="counts"
             )
             counts_df = pd.read_csv(uploaded_counts_file, sep="\t") if uploaded_counts_file is not None else None
+            counts_df = validated_count_table(counts_df)
 
         if counts_df is not None:
             counts_df = apply_observed_filter(counts_df, key="replicates_observed_only")
-            numeric_columns = counts_df.select_dtypes(include="number").columns.tolist()
+            numeric_columns = count_sample_columns(counts_df)
 
             group_text = st.text_input(
                 "Group each sample, comma-separated in the same order as the columns below "
@@ -901,10 +928,11 @@ elif section == "Comparisons":
             convergence_df = (
                 pd.read_csv(uploaded_convergence_file, sep="\t") if uploaded_convergence_file is not None else None
             )
+            convergence_df = validated_count_table(convergence_df)
 
         if convergence_df is not None:
             convergence_df = apply_observed_filter(convergence_df, key="convergence_observed_only")
-            sample_columns = convergence_df.select_dtypes(include="number").columns.tolist()
+            sample_columns = count_sample_columns(convergence_df)
             id_column = "sgRNA" if "sgRNA" in convergence_df.columns else convergence_df.columns[0]
             gene_column = "Gene" if "Gene" in convergence_df.columns else convergence_df.columns[1]
 
