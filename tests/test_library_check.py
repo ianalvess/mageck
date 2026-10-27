@@ -53,23 +53,19 @@ print("OK: filtered count table written with the expected sgRNAs and columns")
 
 from app.library_check import count_sample_columns
 
-mixed = pd.DataFrame(
-    {
-        "sgRNA": ["a", "b"],
-        "Gene": ["G", "H"],
-        "control1": [1, 0],
-        "tumor1": [5, 2],
-        "LFC": [-1.5, 0.3],
-        "FDR": [0.01, 0.9],
-        "ratio": [0.5, 2.0],
-        "neg|rank": [1, 2],
-    }
+count_table = pd.DataFrame(
+    {"sgRNA": ["a", "b"], "Gene": ["G1", "G2"], "control1": [1, 2], "tumor1": [3, 4]}
 )
+assert count_sample_columns(count_table) == ["control1", "tumor1"]
 
-assert count_sample_columns(mixed) == ["control1", "tumor1"]
+gene_summary = pd.DataFrame({"id": ["G1"], "num": [3], "neg|score": [0.1], "neg|fdr": [0.5]})
+assert count_sample_columns(gene_summary) == []
 
-gene_summary_like = pd.DataFrame(
-    {"id": ["G"], "num": [3], "neg|score": [0.5], "neg|rank": [4], "pos|lfc": [1.2]}
-)
-assert len(count_sample_columns(gene_summary_like)) < 2
-print("OK: only raw count columns are treated as samples")
+sgrna_summary = pd.DataFrame({"sgrna": ["a"], "Gene": ["G1"], "LFC": [1.0], "FDR": [0.1]})
+assert count_sample_columns(sgrna_summary) == []
+
+count_summary = pd.DataFrame({"Label": ["c1"], "Reads": [10], "GiniIndex": [0.1], "Zerocounts": [5]})
+assert count_sample_columns(count_summary) == []
+
+assert count_sample_columns(count_table.assign(tumor1=[-1, 4])) == ["control1"]
+print("OK: only per-sample count columns are accepted")
