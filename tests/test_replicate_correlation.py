@@ -19,3 +19,8 @@ print("Title:", fig.layout.title.text)
 correlation = df["control_rep1"].corr(df["control_rep2"])
 assert correlation > 0.9, f"Expected high correlation for replicates, got {correlation:.3f}"
 print(f"OK: correlation is high as expected ({correlation:.3f})")
+
+real_format = df.rename(columns={"sgrna": "sgRNA"})
+real_fig = build_replicate_correlation_plot(real_format, "control_rep1", "control_rep2")
+assert list(real_fig.data[0].hovertext)[:2] == ["sgRNA_1", "sgRNA_2"]
+print("OK: hover shows sgRNA IDs for MAGeCK-style 'sgRNA' columns")
