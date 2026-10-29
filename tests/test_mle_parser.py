@@ -44,3 +44,10 @@ wald_fig = build_beta_score_plot(wald_df, condition="PLX", fdr_suffix="wald-fdr"
 wald_sig = [pt for trace in wald_fig.data if trace.name == "Significant" for pt in trace.hovertext]
 assert list(wald_sig) == ["GENE_D"]
 print("OK: fdr_suffix selects the Wald FDR column")
+
+wald_title_fig = build_beta_score_plot(
+    df.assign(**{"PLX|wald-fdr": [0.5, 0.5, 0.5, 0.001]}), condition="PLX", fdr_suffix="wald-fdr"
+)
+assert "Wald FDR" in wald_title_fig.layout.title.text
+assert "permutation FDR" in build_beta_score_plot(df, condition="PLX").layout.title.text
+print("OK: the plot title names the FDR method")
