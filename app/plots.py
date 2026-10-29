@@ -450,7 +450,7 @@ def build_beta_comparison_plot(
         },
         hover_name="Gene",
         labels={beta_x: f"Beta score ({condition_x})", beta_y: f"Beta score ({condition_y})"},
-        title=f"MLE Beta Score Comparison: {condition_x} vs {condition_y}",
+        title=f"MLE Beta Score Comparison: {condition_x} vs {condition_y} ({'Wald' if fdr_suffix == 'wald-fdr' else 'permutation'} FDR)",
     )
 
     axis_min = min(plot_df[beta_x].min(), plot_df[beta_y].min())
@@ -548,6 +548,7 @@ def build_beta_score_plot(
     """
     beta_col = f"{condition}|beta"
     fdr_col = f"{condition}|{fdr_suffix}"
+    method_label = "Wald FDR" if fdr_suffix == "wald-fdr" else "permutation FDR"
 
     plot_df = df.copy()
     fdr_values = plot_df[fdr_col]
@@ -569,8 +570,8 @@ def build_beta_score_plot(
         color_discrete_map={"Significant": "#d62728", "Not significant": "#7f7f7f"},
         hover_name="Gene",
         hover_data={fdr_col: ":.2e"},
-        labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": "-log10(FDR)"},
-        title=f"MLE Beta Score Plot: {condition}",
+        labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": f"-log10({method_label})"},
+        title=f"MLE Beta Score Plot: {condition} ({method_label})",
     )
     fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
     fig.update_layout(height=600)
