@@ -220,5 +220,6 @@ __marimo__/
 # MAGeCK dashboard project data (local outputs, not versioned)
 data/input/*
 data/output/*
+data/pipeline_runs/
 !data/input/.gitkeep
 !data/output/.gitkeep
