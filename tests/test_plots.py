@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.parser import load_gene_summary
 from app.plots import build_volcano_plot
 
-fixture = Path(__file__).parent / "fixtures_gene_summary.txt"
+fixture = Path(__file__).parent / "fixtures" / "gene_summary.txt"
 df = load_gene_summary(fixture)
 
 fig = build_volcano_plot(df, fdr_threshold=0.05, lfc_threshold=1.0)
@@ -21,3 +21,5 @@ assert "GENE_A" in sig_points
 assert "GENE_B" in sig_points
 assert "GENE_C" not in sig_points
 print("OK: significance flags match expected genes")
+
+assert len(build_volcano_plot(df, fdr_threshold=0.0, lfc_threshold=1.0).layout.shapes) == 2

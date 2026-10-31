@@ -5,6 +5,9 @@ from unittest.mock import patch, MagicMock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
+import tempfile
+
+TMP_DIR = tempfile.mkdtemp()
 
 # Fake a successful subprocess result, without actually running mageck
 fake_result = MagicMock()
@@ -17,7 +20,7 @@ with patch("app.pipeline.subprocess.run", return_value=fake_result) as mock_run:
         fastq_paths=["control.fastq", "treatment.fastq"],
         sample_labels=["control", "treatment"],
         library_path="library.csv",
-        output_dir="tests/tmp_output",
+        output_dir=TMP_DIR,
         output_prefix="test_run",
     )
 
@@ -42,7 +45,7 @@ try:
         fastq_paths=["only_one.fastq"],
         sample_labels=["control", "treatment"],
         library_path="library.csv",
-        output_dir="tests/tmp_output",
+        output_dir=TMP_DIR,
     )
     raise AssertionError("Expected ValueError for mismatched lengths")
 except ValueError:
@@ -54,7 +57,7 @@ with patch("app.pipeline.subprocess.run", return_value=fake_result) as mock_run:
         count_table_path="tests/tmp_output/test_run.count.txt",
         treatment_labels=["treatment"],
         control_labels=["control"],
-        output_dir="tests/tmp_output",
+        output_dir=TMP_DIR,
         output_prefix="test_run_analysis",
     )
 
@@ -77,7 +80,7 @@ with patch("app.pipeline.subprocess.run", return_value=fake_result) as mock_run:
     result = run_mageck_mle(
         count_table_path="tests/tmp_output/test_run.count.txt",
         design_matrix_path="tests/tmp_output/design.txt",
-        output_dir="tests/tmp_output",
+        output_dir=TMP_DIR,
         output_prefix="test_run_mle",
     )
 

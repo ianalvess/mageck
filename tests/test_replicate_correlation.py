@@ -7,7 +7,7 @@ import pandas as pd
 
 from app.plots import build_replicate_correlation_plot
 
-fixture = Path(__file__).parent / "fixtures_replicate_counts.txt"
+fixture = Path(__file__).parent / "fixtures" / "replicate_counts.txt"
 df = pd.read_csv(fixture, sep="\t")
 
 fig = build_replicate_correlation_plot(df, "control_rep1", "control_rep2")

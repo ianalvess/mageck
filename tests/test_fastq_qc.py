@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.fastq_qc import compute_gc_distribution, compute_quality_profile
 from app.plots import build_gc_content_plot, build_quality_profile_plot
 
-fixture = Path(__file__).parent / "fixtures_sample.fastq"
+fixture = Path(__file__).parent / "fixtures" / "sample.fastq"
 
 gc_df = compute_gc_distribution(fixture)
 print("GC distribution:")
@@ -35,3 +35,22 @@ print(f"\nOK: GC content figure built with {len(gc_fig.data)} trace(s)")
 quality_fig = build_quality_profile_plot(quality_df, sample_name="fixtures_sample")
 assert quality_fig.data, "Quality profile figure has no traces"
 print(f"OK: quality profile figure built with {len(quality_fig.data)} trace(s)")
+
+import tempfile
+
+
+def expect_value_error(content: str, message: str) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        bad_file = Path(tmp) / "bad.fastq"
+        bad_file.write_text(content)
+        try:
+            compute_gc_distribution(bad_file)
+        except ValueError:
+            return
+        raise AssertionError(message)
+
+
+expect_value_error(">seq1\nACGT\n", "A FASTA file should be rejected")
+expect_value_error("@r1\nACGT\n+\nIIII\n@r2\nACGT\n", "A truncated record should be rejected")
+expect_value_error("@r1\nACGT\n+\nIII\n", "Mismatched sequence/quality lengths should be rejected")
+print("OK: malformed FASTQ files are rejected instead of giving partial QC")

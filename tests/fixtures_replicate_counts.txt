@@ -1,9 +1,0 @@
-sgrna	Gene	control_rep1	control_rep2	treatment_rep1	treatment_rep2
-sgRNA_1	GENE_A	120	115	15	18
-sgRNA_2	GENE_A	95	100	10	12
-sgRNA_3	GENE_B	80	85	500	480
-sgRNA_4	GENE_B	60	58	450	460
-sgRNA_5	GENE_C	100	98	105	102
-sgRNA_6	GENE_C	50	52	48	55
-sgRNA_7	GENE_D	200	195	190	205
-sgRNA_8	GENE_D	150	160	155	148

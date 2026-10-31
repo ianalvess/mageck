@@ -1,5 +1,0 @@
-File	Label	Reads	Mapped	Percentage	TotalsgRNAs	Zerocounts	GiniIndex
-control_rep1.fastq	control_rep1	20000000	18500000	0.925	6000	12	0.18
-control_rep2.fastq	control_rep2	19500000	17800000	0.9128	6000	15	0.19
-treatment_rep1.fastq	treatment_rep1	21000000	14200000	0.6762	6000	340	0.42
-treatment_rep2.fastq	treatment_rep2	20500000	13900000	0.6780	6000	355	0.44

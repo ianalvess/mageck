@@ -6,8 +6,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.parser import load_gene_summary
 from app.plots import compare_gene_summaries, build_screen_comparison_plot
 
-fixture1 = Path(__file__).parent / "fixtures_gene_summary.txt"
-fixture2 = Path(__file__).parent / "fixtures_gene_summary_screen2.txt"
+fixture1 = Path(__file__).parent / "fixtures" / "gene_summary.txt"
+fixture2 = Path(__file__).parent / "fixtures" / "gene_summary_screen2.txt"
 
 df1 = load_gene_summary(fixture1)
 df2 = load_gene_summary(fixture2)

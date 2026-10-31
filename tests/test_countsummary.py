@@ -9,7 +9,7 @@ from app.plots import build_zerocounts_plot
 
 from app.plots import build_mapping_summary_plot
 
-fixture = Path(__file__).parent / "fixtures_countsummary.txt"
+fixture = Path(__file__).parent / "fixtures" / "countsummary.txt"
 df = load_countsummary(fixture)
 
 print(df[["Label", "Percentage", "Zerocounts", "GiniIndex"]])

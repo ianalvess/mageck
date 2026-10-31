@@ -51,11 +51,11 @@ for section_name in ["Pipeline", "Quality Control", "Results", "Comparisons"]:
     assert_no_exception(open_section(section_name), f"section '{section_name}' renders with no data")
 
 # Part 2: "use last run" paths with the small fixtures
-count_table = FIXTURES / "fixtures_replicate_counts.txt"
+count_table = FIXTURES / "fixtures" / "replicate_counts.txt"
 
 at = open_section(
     "Quality Control",
-    {"pipeline_countsummary": FIXTURES / "fixtures_countsummary.txt", "pipeline_count_table": count_table},
+    {"pipeline_countsummary": FIXTURES / "fixtures" / "countsummary.txt", "pipeline_count_table": count_table},
 )
 use_last_run(at, "mapping_source")
 assert_no_exception(at, "Mapping QC with a countsummary")
@@ -65,8 +65,8 @@ assert_no_exception(at, "QC Report with a count table")
 at = open_section(
     "Results",
     {
-        "pipeline_gene_summary": FIXTURES / "fixtures_gene_summary.txt",
-        "pipeline_mle_gene_summary": FIXTURES / "fixtures_mle_gene_summary.txt",
+        "pipeline_gene_summary": FIXTURES / "fixtures" / "gene_summary.txt",
+        "pipeline_mle_gene_summary": FIXTURES / "fixtures" / "mle_gene_summary.txt",
     },
 )
 use_last_run(at, "volcano_source")

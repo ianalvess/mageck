@@ -1,5 +1,0 @@
-id	num	neg|score	neg|p-value	neg|fdr	neg|rank	neg|goodsgrna	neg|lfc	pos|score	pos|p-value	pos|fdr	pos|rank	pos|goodsgrna	pos|lfc
-GENE_A	4	0.002	0.001	0.004	1	4	-3.1	0.97	0.9	0.98	95	0	-3.1
-GENE_B	4	0.6	0.5	0.65	55	1	0.3	0.6	0.5	0.6	50	1	1.2
-GENE_C	4	0.75	0.65	0.85	85	0	0.05	0.65	0.55	0.75	65	0	0.1
-GENE_D	4	0.65	0.55	0.75	70	0	0.2	0.002	0.0008	0.003	1	4	3.8

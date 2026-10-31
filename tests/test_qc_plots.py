@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.parser import load_sgrna_summary
 from app.plots import compute_gini_index, build_read_distribution_plot
 
-fixture = Path(__file__).parent / "fixtures_sgrna_summary.txt"
+fixture = Path(__file__).parent / "fixtures" / "sgrna_summary.txt"
 df = load_sgrna_summary(fixture)
 
 gini = compute_gini_index(df["control_count"])

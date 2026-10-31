@@ -41,3 +41,9 @@ try:
     raise AssertionError("Expected ValueError for a column with no reads")
 except ValueError:
     print("OK: a column with no reads raises ValueError")
+
+uneven_library = pd.DataFrame({"sgRNA": ["a", "b", "c", "d"], "Gene": ["G1", "G1", "G1", "G2"]})
+uneven_summary = summarize_gene_convergence(uneven_library.iloc[[0, 3]], uneven_library)
+# P(two random sgRNAs share a gene) = (3 * 2) / (4 * 3) = 0.5; the mean-based formula would give 1/3
+assert abs(uneven_summary["expected_pairs"] - 0.5) < 1e-9
+print("OK: expected pairs use the real distribution of sgRNAs per gene")

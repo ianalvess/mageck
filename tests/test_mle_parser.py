@@ -7,7 +7,7 @@ from app.parser import load_mle_gene_summary
 from app.plots import build_beta_comparison_plot
 from app.plots import build_beta_score_plot
 
-fixture = Path(__file__).parent / "fixtures_mle_gene_summary.txt"
+fixture = Path(__file__).parent / "fixtures" / "mle_gene_summary.txt"
 df, conditions = load_mle_gene_summary(fixture)
 
 print("Conditions found:", conditions)
@@ -51,3 +51,5 @@ wald_title_fig = build_beta_score_plot(
 assert "Wald FDR" in wald_title_fig.layout.title.text
 assert "permutation FDR" in build_beta_score_plot(df, condition="PLX").layout.title.text
 print("OK: the plot title names the FDR method")
+
+assert len(build_beta_score_plot(df, condition="PLX", fdr_threshold=0.0).layout.shapes) == 0

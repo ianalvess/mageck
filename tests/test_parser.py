@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.parser import load_gene_summary
 
-fixture = Path(__file__).parent / "fixtures_gene_summary.txt"
+fixture = Path(__file__).parent / "fixtures" / "gene_summary.txt"
 df = load_gene_summary(fixture)
 
 print(df[["id", "direction", "best_fdr", "best_lfc"]])
