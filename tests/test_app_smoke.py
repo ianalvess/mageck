@@ -73,6 +73,10 @@ use_last_run(at, "volcano_source")
 assert_no_exception(at, "Test Results with a gene_summary")
 use_last_run(at, "mle_view_source")
 assert_no_exception(at, "MLE Results with an MLE gene_summary")
+use_last_run(at, "consensus_rra_source")
+use_last_run(at, "consensus_mle_source")
+assert_no_exception(at, "Consensus with RRA and MLE results")
+
 
 at = open_section("Comparisons", {"pipeline_count_table": count_table})
 use_last_run(at, "replicates_source")
