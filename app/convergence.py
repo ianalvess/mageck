@@ -82,14 +82,18 @@ def summarize_gene_convergence(
         (a DataFrame of genes with 2+ convergent sgRNAs).
     """
     n_total = len(counts_df)
-    sgrnas_per_gene = n_total / counts_df[gene_column].nunique()
+    in_library = counts_df[gene_column].value_counts()
 
     k = len(convergent_df)
     per_gene = convergent_df[gene_column].value_counts()
     observed_pairs = int(sum(comb(int(n), 2) for n in per_gene))
-    expected_pairs = comb(k, 2) * (sgrnas_per_gene - 1) / (n_total - 1) if n_total > 1 else 0.0
 
-    in_library = counts_df[gene_column].value_counts()
+    # Probability that two distinct sgRNAs drawn at random share a gene, using the real
+    # number of sgRNAs per gene (genes with more sgRNAs contribute more pairs).
+    same_gene_pairs = float((in_library * (in_library - 1)).sum())
+    probability_same_gene = same_gene_pairs / (n_total * (n_total - 1)) if n_total > 1 else 0.0
+    expected_pairs = comb(k, 2) * probability_same_gene
+
     multi = per_gene[per_gene >= 2]
     genes = pd.DataFrame(
         {
