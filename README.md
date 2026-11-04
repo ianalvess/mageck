@@ -14,7 +14,7 @@ A Dockerized Streamlit dashboard that makes CRISPR screen analysis with \[MAGeCK
 
 \- \*\*Quality Control\*\*: mapping rate and zero-count sgRNAs per sample, per-sample read distribution with two Gini indices, and a sample overview (correlation heatmap and PCA).
 
-\- \*\*Results\*\*: volcano plot for `mageck test`, and beta scores for `mageck mle` (permutation or Wald FDR).
+\- \*\*Results\*\*: volcano plot for `mageck test`, beta scores for `mageck mle` (permutation or Wald FDR), and a consensus table that counts how many methods (RRA, MLE, replicate convergence) support each gene.
 
 \- \*\*Comparisons\*\*: replicate correlation, comparison of two screens, and replicate convergence (sgRNAs enriched in every replicate).
 
@@ -88,6 +88,8 @@ Outputs of runs started from the dashboard are written to `data/pipeline\_runs/<
 
 \- \*\*Clonal tumors\*\*: when one replicate is dominated by a few clones, gene-level tests can be driven by a single sample. The convergence analysis looks for sgRNAs enriched in every replicate instead.
 
+\- \*\*Consensus\*\*: ranks candidates by how many methods support them; it does not validate them, because all methods use the same replicates. MLE betas above 10 in absolute value are flagged as unstable and do not count as support.
+
 
 
 \## Development
@@ -138,7 +140,9 @@ app/
 
 &#x20; convergence.py     Replicate convergence analysis
 
-tests/               Test scripts and small fixtures
+&#x20; consensus.py       Gene-level consensus across RRA, MLE and convergence
+
+tests/               Test scripts; tests/fixtures/ holds their small input files
 
 data/input/          Your FASTQ files, libraries, design matrices (git-ignored)
 
