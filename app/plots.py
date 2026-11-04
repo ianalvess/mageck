@@ -49,7 +49,8 @@ def build_volcano_plot(
         title="Volcano Plot",
     )
 
-    fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
+    if fdr_threshold > 0:
+        fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
     fig.add_vline(x=lfc_threshold, line_dash="dash", line_color="gray")
     fig.add_vline(x=-lfc_threshold, line_dash="dash", line_color="gray")
 
@@ -573,6 +574,7 @@ def build_beta_score_plot(
         labels={beta_col: f"Beta score ({condition})", "neg_log10_fdr": f"-log10({method_label})"},
         title=f"MLE Beta Score Plot: {condition} ({method_label})",
     )
-    fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
+    if fdr_threshold > 0:
+        fig.add_hline(y=-np.log10(fdr_threshold), line_dash="dash", line_color="gray")
     fig.update_layout(height=600)
     return fig
