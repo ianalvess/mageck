@@ -32,6 +32,10 @@ def sample_fastq_reads(path: str | Path, max_reads: int | None = None):
 
     Yields:
         Tuples of (sequence, quality_string) for each read.
+
+    Raises:
+        ValueError: if a record is malformed (not FASTQ, truncated, or with
+            sequence and quality of different lengths).
     """
     with _open_fastq(path) as f:
         count = 0
@@ -39,9 +43,20 @@ def sample_fastq_reads(path: str | Path, max_reads: int | None = None):
             header = f.readline()
             if not header:
                 break  # end of file reached
+            if not header.strip():
+                continue  # tolerate blank lines
             sequence = f.readline().strip()
-            f.readline()
+            separator = f.readline()
             quality = f.readline().strip()
+
+            record_number = count + 1
+            if not header.startswith("@"):
+                raise ValueError(f"Not a valid FASTQ file: record {record_number} does not start with '@'")
+            if not separator.startswith("+"):
+                raise ValueError(f"Malformed FASTQ record {record_number}: missing '+' line (truncated file?)")
+            if len(sequence) != len(quality):
+                raise ValueError(f"Malformed FASTQ record {record_number}: sequence and quality lengths differ")
+
             yield sequence, quality
             count += 1
 
