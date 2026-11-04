@@ -25,7 +25,7 @@ from fastq_qc import compute_gc_distribution, compute_quality_profile
 from library_check import count_sample_columns, filter_observed, summarize_observed, write_observed_count_table
 
 from convergence import find_convergent_sgrnas, summarize_gene_convergence
-
+from consensus import build_consensus_table
 from pipeline import run_mageck_count, run_mageck_test, run_mageck_mle
 
 st.set_page_config(page_title="MAGeCK Dashboard", layout="wide")
@@ -215,16 +215,21 @@ if section == "Pipeline":
             test_count_path = DATA_INPUT_DIR / test_count_choice if test_count_choice else None
 
         use_observed_only_test = observed_only_option(test_count_path, key="test_observed_only")
-        available_labels = st.session_state.get("last_count_labels", [])
-        if available_labels:
-            control_labels = st.multiselect("Control sample labels", options=available_labels, key="test_control_labels")
-            treatment_labels = st.multiselect("Treatment sample labels", options=available_labels, key="test_treatment_labels")
+        sample_labels_test = []
+        if test_count_path is not None and Path(test_count_path).exists():
+            sample_labels_test = count_sample_columns(pd.read_csv(test_count_path, sep="\t", nrows=1000))
+
+        if sample_labels_test:
+            control_labels = st.multiselect(
+                "Control sample labels", options=sample_labels_test, key=f"test_control_labels::{test_count_path}"
+            )
+            treatment_labels = st.multiselect(
+                "Treatment sample labels", options=sample_labels_test, key=f"test_treatment_labels::{test_count_path}"
+            )
         else:
-            st.info("Sample labels for this count table are unknown here. Enter them manually, comma-separated.")
-            control_text = st.text_input("Control sample labels (comma-separated)", key="test_control_text")
-            treatment_text = st.text_input("Treatment sample labels (comma-separated)", key="test_treatment_text")
-            control_labels = [s.strip() for s in control_text.split(",") if s.strip()]
-            treatment_labels = [s.strip() for s in treatment_text.split(",") if s.strip()]
+            if test_count_path is not None:
+                st.warning("No sample columns found in this count table. Select a MAGeCK count table above.")
+            control_labels, treatment_labels = [], []
 
         overlap = set(control_labels) & set(treatment_labels)
         test_output_prefix = st.text_input("Output prefix", value="mageck_test", key="test_output_prefix")
@@ -363,16 +368,19 @@ if section == "Pipeline":
             if st.button("Compute QC"):
                 fastq_path_qc = DATA_INPUT_DIR / fastq_choice_qc
 
-                with st.spinner(f"Reading {fastq_choice_qc} and computing GC content..."):
-                    gc_df = compute_gc_distribution(fastq_path_qc)
+                try:
+                    with st.spinner(f"Reading {fastq_choice_qc} and computing GC content..."):
+                        gc_df = compute_gc_distribution(fastq_path_qc)
 
-                with st.spinner("Computing base quality profile..."):
-                    quality_df = compute_quality_profile(fastq_path_qc)
-
-                st.session_state["fastqqc_gc_df"] = gc_df
-                st.session_state["fastqqc_quality_df"] = quality_df
-                st.session_state["fastqqc_sample_name"] = sample_name_qc
-                st.success(f"Processed {len(gc_df):,} reads from {fastq_choice_qc}.")
+                    with st.spinner("Computing base quality profile..."):
+                        quality_df = compute_quality_profile(fastq_path_qc)
+                except (ValueError, EOFError, OSError) as error:
+                    st.error(f"Could not read this FASTQ file: {error}")
+                else:
+                    st.session_state["fastqqc_gc_df"] = gc_df
+                    st.session_state["fastqqc_quality_df"] = quality_df
+                    st.session_state["fastqqc_sample_name"] = sample_name_qc
+                    st.success(f"Processed {len(gc_df):,} reads from {fastq_choice_qc}.")
 
             if "fastqqc_gc_df" in st.session_state:
                 fastq_gc_fig = build_gc_content_plot(
@@ -619,7 +627,7 @@ elif section == "Quality Control":
 
 elif section == "Results":
     st.header("Results")
-    sub_volcano, sub_mle_results = st.tabs(["Test Results", "MLE Results"])
+    sub_volcano, sub_mle_results, sub_consensus = st.tabs(["Test Results", "MLE Results", "Consensus"])
 
     with sub_volcano:
         source = st.radio(
@@ -767,6 +775,154 @@ elif section == "Results":
             st.dataframe(mle_df, use_container_width=True)
         elif mle_source == "Upload file":
             st.info("Upload a MAGeCK MLE gene_summary.txt file to get started.")
+
+
+    with sub_consensus:
+        st.write(
+            "Crosses the RRA (`mageck test`), MLE (`mageck mle`) and replicate-convergence results gene by "
+            "gene and counts how many methods support each gene at the thresholds below. Use it to rank "
+            "candidates, not to validate them: all methods use the same replicates."
+        )
+
+        rra_source = st.radio(
+            "RRA results (mageck test)",
+            ["Upload file", "Use last pipeline run", "Not used"],
+            key="consensus_rra_source",
+            horizontal=True,
+        )
+        consensus_rra = None
+        if rra_source == "Upload file":
+            rra_file = st.file_uploader("Upload gene_summary.txt (mageck test)", type=["txt", "tsv"], key="consensus_rra_upload")
+            consensus_rra = load_gene_summary(rra_file) if rra_file is not None else None
+        elif rra_source == "Use last pipeline run":
+            if "pipeline_gene_summary" in st.session_state:
+                consensus_rra = load_gene_summary(st.session_state["pipeline_gene_summary"])
+                st.caption(f"Using: {st.session_state['pipeline_gene_summary']}")
+            else:
+                st.warning("No mageck test run yet in this session.")
+
+        mle_source = st.radio(
+            "MLE results (mageck mle)",
+            ["Upload file", "Use last MLE run", "Not used"],
+            key="consensus_mle_source",
+            horizontal=True,
+        )
+        consensus_mle, consensus_conditions = None, []
+        if mle_source == "Upload file":
+            mle_file = st.file_uploader("Upload gene_summary.txt (mageck mle)", type=["txt", "tsv"], key="consensus_mle_upload")
+            if mle_file is not None:
+                consensus_mle, consensus_conditions = load_mle_gene_summary(mle_file)
+        elif mle_source == "Use last MLE run":
+            if "pipeline_mle_gene_summary" in st.session_state:
+                consensus_mle, consensus_conditions = load_mle_gene_summary(st.session_state["pipeline_mle_gene_summary"])
+                st.caption(f"Using: {st.session_state['pipeline_mle_gene_summary']}")
+            else:
+                st.warning("No mageck mle run yet in this session.")
+
+        consensus_condition, consensus_fdr_suffix = None, "fdr"
+        if consensus_mle is not None:
+            consensus_condition = st.selectbox("MLE condition", consensus_conditions, key="consensus_mle_condition")
+            consensus_fdr_methods = {"Permutation (fdr)": "fdr"}
+            if any(column.endswith("|wald-fdr") for column in consensus_mle.columns):
+                consensus_fdr_methods["Wald (wald-fdr)"] = "wald-fdr"
+            consensus_fdr_label = st.radio(
+                "MLE FDR method", list(consensus_fdr_methods), horizontal=True, key="consensus_mle_method"
+            )
+            consensus_fdr_suffix = consensus_fdr_methods[consensus_fdr_label]
+
+        conv_source = st.radio(
+            "Replicate convergence",
+            ["Not used", "Use last convergence run", "Upload CSV"],
+            key="consensus_conv_source",
+            horizontal=True,
+        )
+        consensus_conv = None
+        if conv_source == "Use last convergence run":
+            if "convergence_result" in st.session_state:
+                consensus_conv = st.session_state["convergence_result"]
+            else:
+                st.warning("Run Comparisons > Replicate Convergence first; it keeps its last result in this session.")
+        elif conv_source == "Upload CSV":
+            conv_file = st.file_uploader(
+                "Upload convergent_sgrnas.csv (downloaded from Replicate Convergence)", type=["csv"], key="consensus_conv_upload"
+            )
+            if conv_file is not None:
+                consensus_conv = pd.read_csv(conv_file)
+                if "Gene" not in consensus_conv.columns:
+                    st.error("This CSV has no 'Gene' column. Use the file downloaded from Replicate Convergence.")
+                    consensus_conv = None
+
+        col1, col2, col3, col4 = st.columns(4)
+        rra_threshold = col1.number_input(
+            "RRA FDR threshold", min_value=0.0, max_value=1.0, value=0.05, step=0.01, key="consensus_rra_fdr"
+        )
+        mle_threshold = col2.number_input(
+            "MLE FDR threshold", min_value=0.0, max_value=1.0, value=0.05, step=0.01, key="consensus_mle_fdr"
+        )
+        min_convergent = col3.number_input(
+            "Min convergent sgRNAs per gene", min_value=1, value=2, step=1, key="consensus_min_conv"
+        )
+        max_abs_beta = col4.number_input(
+            "Max |beta| for MLE support",
+            min_value=1.0,
+            value=10.0,
+            step=1.0,
+            key="consensus_max_beta",
+            help="Larger betas are flagged as unstable (usually near-zero counts in one sample) and do not count as support.",
+        )
+
+        if consensus_rra is None and consensus_mle is None and consensus_conv is None:
+            st.info("Provide at least one result above to build the consensus table.")
+        else:
+            consensus_table = build_consensus_table(
+                rra_df=consensus_rra,
+                mle_df=consensus_mle,
+                convergent_df=consensus_conv,
+                mle_condition=consensus_condition,
+                mle_fdr_suffix=consensus_fdr_suffix,
+                rra_fdr_threshold=rra_threshold,
+                mle_fdr_threshold=mle_threshold,
+                min_convergent_sgrnas=int(min_convergent),
+                mle_max_abs_beta=max_abs_beta,
+            )
+            support_columns = [
+                column for column in ("rra_support", "mle_support", "convergence_support") if column in consensus_table.columns
+            ]
+
+            metric1, metric2, metric3 = st.columns(3)
+            metric1.metric("Genes supported by at least 1 method", f"{int((consensus_table['methods_supporting'] >= 1).sum()):,}")
+            if len(support_columns) >= 2:
+                metric2.metric("At least 2 methods", f"{int((consensus_table['methods_supporting'] >= 2).sum()):,}")
+                metric3.metric("All methods", f"{int((consensus_table['methods_supporting'] == len(support_columns)).sum()):,}")
+
+            filter_col1, filter_col2 = st.columns(2)
+            min_methods = filter_col1.number_input(
+                "Minimum supporting methods",
+                min_value=0,
+                max_value=len(support_columns),
+                value=min(2, len(support_columns)),
+                step=1,
+                key="consensus_min_methods",
+            )
+            direction_filter = filter_col2.selectbox(
+                "Direction", ["All", "enriched", "depleted", "mixed"], key="consensus_direction"
+            )
+
+            filtered_consensus = consensus_table[consensus_table["methods_supporting"] >= min_methods]
+            if direction_filter != "All":
+                filtered_consensus = filtered_consensus[filtered_consensus["consensus_direction"] == direction_filter]
+
+            st.dataframe(filtered_consensus, use_container_width=True)
+            st.caption(
+                "mle_unstable marks genes whose |beta| exceeds the cap; they do not count as MLE support. "
+                "'mixed' means the supporting methods disagree on direction."
+            )
+            st.download_button(
+                "Download consensus table (CSV)",
+                data=filtered_consensus.to_csv(index=False),
+                file_name="consensus_table.csv",
+                mime="text/csv",
+            )
 
 elif section == "Comparisons":
     st.header("Comparisons")
@@ -966,6 +1122,7 @@ elif section == "Comparisons":
                     gene_column=gene_column,
                 )
                 summary = summarize_gene_convergence(convergent_df, convergence_df, gene_column=gene_column)
+                st.session_state["convergence_result"] = convergent_df.rename(columns={gene_column: "Gene"})
 
                 metric1, metric2, metric3 = st.columns(3)
                 metric1.metric("Convergent sgRNAs", f"{summary['n_sgrnas']:,}")
