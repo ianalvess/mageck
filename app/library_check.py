@@ -33,7 +33,7 @@ def summarize_observed(
         DataFrame (columns: total, observed, unobserved).
     """
     mask = observed_mask(counts_df, sample_columns)
-    prefixes = counts_df[id_column].str.split("_").str[0]
+    prefixes = counts_df[id_column].astype(str).str.split("_").str[0]
 
     by_prefix = (
         pd.DataFrame({"prefix": prefixes, "observed": mask})
@@ -64,9 +64,17 @@ def write_observed_count_table(count_path: str | Path, output_path: str | Path) 
 
     Returns:
         A dict with the number of sgRNAs kept and removed.
+
+    Raises:
+        ValueError: if no per-sample count columns are found in the table.
     """
-    counts_df = pd.read_csv(count_path, sep="\t")
-    sample_columns = counts_df.select_dtypes(include="number").columns.tolist()
+    # Read the identifier columns (sgRNA, Gene) as text so numeric-looking IDs are
+    # neither mistaken for samples nor altered (e.g. leading zeros) when written back.
+    header = pd.read_csv(count_path, sep="\t", nrows=0).columns.tolist()
+    counts_df = pd.read_csv(count_path, sep="\t", dtype={column: str for column in header[:2]})
+    sample_columns = count_sample_columns(counts_df)
+    if not sample_columns:
+        raise ValueError("No per-sample count columns found in this count table")
     filtered = filter_observed(counts_df, sample_columns)
 
     output_path = Path(output_path)
@@ -87,7 +95,8 @@ def count_sample_columns(df: pd.DataFrame) -> list[str]:
 
     Tables that look like a MAGeCK gene/sgRNA summary or a countsummary (columns
     such as FDR, LFC, score, GiniIndex or "neg|fdr") are rejected, so statistics
-    are never offered as samples.
+    are never offered as samples. The first two columns (sgRNA and Gene) are
+    identifiers and are never returned, even when their values look numeric.
 
     Returns:
         The numeric, non-negative sample column names, or an empty list if the
@@ -97,5 +106,5 @@ def count_sample_columns(df: pd.DataFrame) -> list[str]:
     if any("|" in name or name in SUMMARY_FILE_MARKERS for name in names):
         return []
 
-    numeric = df.select_dtypes(include="number")
+    numeric = df.iloc[:, 2:].select_dtypes(include="number")
     return [column for column in numeric.columns if (numeric[column].dropna() >= 0).all()]
