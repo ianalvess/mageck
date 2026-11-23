@@ -19,8 +19,18 @@ def load_gene_summary(path: str | Path) -> pd.DataFrame:
     """Load and clean a MAGeCK gene_summary.txt file.
 
     Adds convenience columns:
-    - direction: "neg" or "pos", whichever has the lower FDR for that gene
-    - best_fdr / best_lfc: the FDR/LFC value for the chosen direction
+    - direction: "neg" or "pos", chosen by comparing the two FDRs of the gene, not by the
+      sign of any LFC. The smaller FDR wins and exact ties go to "neg". A missing FDR
+      never wins, and the value is NaN when neither FDR is available. Every gene with at
+      least one FDR gets a direction, including non-significant genes, so for non-hits
+      it is not evidence of a biological effect.
+    - best_fdr: the FDR of the chosen direction, copied unchanged. MAGeCK calculates the
+      neg (depletion) and pos (enrichment) FDRs separately as one-sided tests, so
+      best_fdr is the smaller of two separately calculated one-sided FDRs. It is not a
+      separately corrected two-sided FDR, and it does not account for having picked
+      the better of the two directions.
+    - best_lfc: the LFC of the same direction (neg|lfc or pos|lfc), so its sign can
+      disagree with the direction.
 
     Args:
         path: path to the gene_summary.txt file.
@@ -36,11 +46,15 @@ def load_gene_summary(path: str | Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"gene_summary file is missing expected columns: {missing}")
 
-    # Pick whichever direction (depletion vs enrichment) is more significant per gene
-    neg_is_better = df["neg|fdr"] <= df["pos|fdr"]
+    # Pick whichever direction (depletion vs enrichment) is more significant per gene.
+    # A comparison with a missing (NaN) FDR is always False, so a gene with a valid neg FDR
+    # and a missing pos FDR must be assigned to neg explicitly; a gene with no FDR at all
+    # has no direction.
+    neg_fdr, pos_fdr = df["neg|fdr"], df["pos|fdr"]
+    neg_is_better = (neg_fdr <= pos_fdr) | (neg_fdr.notna() & pos_fdr.isna())
 
-    df["direction"] = neg_is_better.map({True: "neg", False: "pos"})
-    df["best_fdr"] = df["neg|fdr"].where(neg_is_better, df["pos|fdr"])
+    df["direction"] = neg_is_better.map({True: "neg", False: "pos"}).where(neg_fdr.notna() | pos_fdr.notna())
+    df["best_fdr"] = neg_fdr.where(neg_is_better, pos_fdr)
     df["best_lfc"] = df["neg|lfc"].where(neg_is_better, df["pos|lfc"])
 
     return df
