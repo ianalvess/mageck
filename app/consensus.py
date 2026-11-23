@@ -13,6 +13,89 @@ import numpy as np
 import pandas as pd
 
 
+def find_duplicate_genes(
+    rra_df: pd.DataFrame | None = None,
+    mle_df: pd.DataFrame | None = None,
+) -> dict[str, list[str]]:
+    """Gene IDs that appear more than once in the RRA or MLE input.
+
+    Returns {"rra": [...], "mle": [...]} with only the sources that have duplicates.
+    The convergence table is not checked: it has one row per sgRNA, so a gene is
+    expected to repeat there.
+    """
+    found = {}
+    for source, frame, column in (("rra", rra_df, "id"), ("mle", mle_df, "Gene")):
+        if frame is None:
+            continue
+        counts = frame[column].dropna().astype(str).value_counts()
+        repeated = sorted(counts[counts > 1].index)
+        if repeated:
+            found[source] = repeated
+    return found
+
+
+def describe_duplicate_genes(duplicates: dict[str, list[str]], max_listed: int = 5) -> str:
+    """One-line description of find_duplicate_genes output, for errors."""
+    labels = {"rra": "RRA (mageck test)", "mle": "MLE (mageck mle)"}
+    parts = []
+    for source, genes in duplicates.items():
+        listed = ", ".join(genes[:max_listed])
+        extra = f" and {len(genes) - max_listed} more" if len(genes) > max_listed else ""
+        parts.append(f"{labels[source]}: {listed}{extra}")
+    return "Duplicate gene IDs found. " + "; ".join(parts) + ". Each gene must appear once per input."
+
+
+def _gene_set(values: pd.Series) -> set[str]:
+    return set(values.dropna().astype(str))
+
+
+def _normalized_gene_set(genes: set[str]) -> set[str]:
+    return {gene.strip().casefold() for gene in genes}
+
+
+def gene_overlap_report(
+    rra_df: pd.DataFrame | None = None,
+    mle_df: pd.DataFrame | None = None,
+    convergent_df: pd.DataFrame | None = None,
+    gene_column: str = "Gene",
+    min_overlap: float = 0.5,
+) -> list[str]:
+    """Warnings for inputs whose gene names barely overlap.
+
+    Compares each pair of provided inputs (RRA, MLE, convergent genes) by exact gene
+    name. The overlap is shared genes divided by the size of the smaller set; a pair
+    below min_overlap gets one warning. Nothing is merged or renamed: when ignoring
+    case and surrounding spaces would raise the overlap, the warning says so.
+    """
+    sets = []
+    if rra_df is not None:
+        sets.append(("RRA", _gene_set(rra_df["id"])))
+    if mle_df is not None:
+        sets.append(("MLE", _gene_set(mle_df["Gene"])))
+    if convergent_df is not None:
+        sets.append(("convergence", _gene_set(convergent_df[gene_column])))
+
+    warnings = []
+    for i, (name_a, genes_a) in enumerate(sets):
+        for name_b, genes_b in sets[i + 1:]:
+            if not genes_a or not genes_b:
+                continue
+            smaller = min(len(genes_a), len(genes_b))
+            shared = len(genes_a & genes_b)
+            if shared / smaller >= min_overlap:
+                continue
+            message = (
+                f"Only {shared} of the {smaller} genes in the smaller set ({shared / smaller:.0%}) are shared "
+                f"between {name_a} and {name_b}. Gene names are matched exactly, so these inputs may come "
+                "from different libraries or use different naming."
+            )
+            loose = len(_normalized_gene_set(genes_a) & _normalized_gene_set(genes_b))
+            if loose > shared:
+                message += f" Ignoring case and surrounding spaces would match {loose}."
+            warnings.append(message)
+    return warnings
+
+
 def build_consensus_table(
     rra_df: pd.DataFrame | None = None,
     mle_df: pd.DataFrame | None = None,
@@ -52,6 +135,9 @@ def build_consensus_table(
         raise ValueError("Provide at least one of rra_df, mle_df or convergent_df")
     if mle_df is not None and not mle_condition:
         raise ValueError("mle_condition is required when mle_df is provided")
+    duplicates = find_duplicate_genes(rra_df, mle_df)
+    if duplicates:
+        raise ValueError(describe_duplicate_genes(duplicates))
 
     frames = []
     if rra_df is not None:
