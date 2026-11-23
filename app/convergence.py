@@ -67,6 +67,45 @@ def find_convergent_sgrnas(
     return result.sort_values(gene_column).reset_index(drop=True)
 
 
+def parse_gene_names(text: str) -> list[str]:
+    """Split a comma-separated list of gene names, dropping whitespace and empty entries."""
+    return [name.strip() for name in text.split(",") if name.strip()]
+
+
+def _normalized_gene_names(genes: pd.Series) -> pd.Series:
+    """Gene names stripped of surrounding whitespace and case-folded; missing names stay missing."""
+    return genes.astype("string").str.strip().str.casefold()
+
+
+def split_control_genes(
+    table: pd.DataFrame,
+    control_genes: list[str],
+    gene_column: str = "Gene",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split a table into targeting rows and rows that belong to control genes.
+
+    A row is a control when its gene name equals one of control_genes, ignoring case and
+    surrounding whitespace. Names are matched exactly (never by prefix), so "NT" does not
+    match "NTRK1". Rows with a missing gene name are never controls.
+
+    Returns:
+        (targeting, controls). With no control names the table itself is returned
+        unchanged, together with an empty table. Otherwise both parts get a fresh index.
+    """
+    wanted = {name.strip().casefold() for name in control_genes if name.strip()}
+    if not wanted:
+        return table, table.iloc[0:0]
+
+    is_control = _normalized_gene_names(table[gene_column]).isin(wanted).fillna(False).astype(bool)
+    return table[~is_control].reset_index(drop=True), table[is_control].reset_index(drop=True)
+
+
+def unmatched_control_names(table: pd.DataFrame, control_genes: list[str], gene_column: str = "Gene") -> list[str]:
+    """Return the control names that match no gene in the table (to catch typos)."""
+    present = set(_normalized_gene_names(table[gene_column]).dropna())
+    return [name for name in control_genes if name.strip().casefold() not in present]
+
+
 def summarize_gene_convergence(
     convergent_df: pd.DataFrame,
     counts_df: pd.DataFrame,
